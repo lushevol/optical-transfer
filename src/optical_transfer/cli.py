@@ -9,3 +9,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("send")
     subparsers.add_parser("receive")
     return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    build_parser().parse_args(argv)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

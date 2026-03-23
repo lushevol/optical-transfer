@@ -8,5 +8,8 @@ version = "0.1.0"
 description = "CLI optical transfer tool"
 requires-python = ">=3.12"
 
+[project.scripts]
+optical-transfer = "optical_transfer.cli:main"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]

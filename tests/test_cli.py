@@ -1,8 +1,11 @@
-from optical_transfer.cli import build_parser
+from optical_transfer.cli import build_parser, main
 
 
-def test_parser_exposes_send_and_receive_commands():
+def test_parser_accepts_send_and_receive_subcommands():
     parser = build_parser()
-    subcommands = parser._subparsers._group_actions[0].choices
-    assert "send" in subcommands
-    assert "receive" in subcommands
+    assert parser.parse_args(["send"]).command == "send"
+    assert parser.parse_args(["receive"]).command == "receive"
+
+
+def test_main_is_exposed_for_console_scripts():
+    assert main([]) == 0
