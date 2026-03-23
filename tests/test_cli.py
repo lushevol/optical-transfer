@@ -1,3 +1,5 @@
+import pytest
+
 from optical_transfer.cli import build_parser, main
 
 
@@ -7,5 +9,8 @@ def test_parser_accepts_send_and_receive_subcommands():
     assert parser.parse_args(["receive"]).command == "receive"
 
 
-def test_main_is_exposed_for_console_scripts():
-    assert main([]) == 0
+def test_main_requires_a_subcommand():
+    with pytest.raises(SystemExit) as excinfo:
+        main([])
+
+    assert excinfo.value.code != 0
