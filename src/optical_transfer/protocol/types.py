@@ -8,7 +8,9 @@ ChunkIndex = int
 TotalChunks = int
 PayloadLength = int
 ProtocolVersion = int
+KdfId = int
 SessionId = bytes
+KdfSalt = bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,3 +22,6 @@ class PacketHeaderFields:
     chunk_index: ChunkIndex
     total_chunks: TotalChunks
     payload_length: PayloadLength
+    kdf_id: KdfId
+    kdf_salt: KdfSalt
+    header_crc: int | None = None
