@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import webbrowser
+from contextlib import suppress
 from pathlib import Path
+from threading import Event
 
 from optical_transfer.config import (
     DEFAULT_CHUNK_SIZE,
@@ -26,6 +28,25 @@ def build_sender_config(args: argparse.Namespace) -> SenderConfig:
 
 def launch_player(url: str) -> bool:
     return webbrowser.open(url)
+
+
+def wait_forever() -> None:
+    with suppress(KeyboardInterrupt):
+        Event().wait()
+
+
+def run_preview_session(
+    server,
+    *,
+    launch_fn=launch_player,
+    wait_fn=wait_forever,
+) -> None:
+    try:
+        launch_fn(f"http://{server.server_address[0]}:{server.server_address[1]}/")
+        wait_fn()
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,7 +73,7 @@ def handle_send(args: argparse.Namespace) -> int:
         port=config.player_port,
         player_root=config.player_root,
     )
-    launch_player(f"http://{server.server_address[0]}:{server.server_address[1]}/")
+    run_preview_session(server, launch_fn=launch_player, wait_fn=wait_forever)
     return 0
 
 
