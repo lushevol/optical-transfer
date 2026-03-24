@@ -13,6 +13,7 @@ from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 from optical_transfer.protocol.header import decode_header
 from optical_transfer.receiver.ffmpeg_frames import extract_frames
 from optical_transfer.receiver.preprocess import preprocess_frame
+from optical_transfer.receiver import qr_decode as qr_decode_module
 from optical_transfer.receiver.qr_decode import decode_qr_payload
 from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
 from optical_transfer.sender.qr_payloads import decode_payload_image, encode_payload_image
@@ -106,6 +107,11 @@ def test_decode_qr_payload_returns_none_for_blank_frame() -> None:
     blank_frame = np.zeros((4, 4), dtype=np.uint8)
 
     assert decode_qr_payload(blank_frame) is None
+
+
+def test_qr_decode_module_exposes_only_planned_adapter_surface() -> None:
+    assert hasattr(qr_decode_module, "decode_qr_payload")
+    assert not hasattr(qr_decode_module, "decode_qr_frame")
 
 
 def test_tampering_packet_type_in_header_breaks_authentication(tmp_path: Path) -> None:
