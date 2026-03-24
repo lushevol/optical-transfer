@@ -6,13 +6,14 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import numpy as np
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 from optical_transfer.protocol.header import decode_header
 from optical_transfer.receiver.ffmpeg_frames import extract_frames
 from optical_transfer.receiver.preprocess import preprocess_frame
-from optical_transfer.receiver.qr_decode import decode_qr_frame
+from optical_transfer.receiver.qr_decode import decode_qr_payload
 from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
 from optical_transfer.sender.qr_payloads import decode_payload_image, encode_payload_image
 from optical_transfer.sender.session import build_session_payloads
@@ -90,13 +91,21 @@ def test_extract_frames_builds_ffmpeg_command_and_collects_frames(tmp_path: Path
     assert frame_paths == [output_dir / "frame_000001.png", output_dir / "frame_000002.png"]
 
 
-def test_preprocess_and_decode_frame_roundtrip() -> None:
-    image = encode_payload_image(b"adapter payload").convert("RGB")
+def test_preprocess_and_decode_frame_roundtrip(tmp_path: Path) -> None:
+    frame_path = tmp_path / "frame.png"
+    encode_payload_image(b"adapter payload").convert("RGB").save(frame_path)
 
-    processed = preprocess_frame(image)
+    processed = preprocess_frame(frame_path)
 
-    assert processed.mode == "1"
-    assert decode_qr_frame(image) == b"adapter payload"
+    assert isinstance(processed, np.ndarray)
+    assert processed.ndim == 2
+    assert decode_qr_payload(processed) == b"adapter payload"
+
+
+def test_decode_qr_payload_returns_none_for_blank_frame() -> None:
+    blank_frame = np.zeros((4, 4), dtype=np.uint8)
+
+    assert decode_qr_payload(blank_frame) is None
 
 
 def test_tampering_packet_type_in_header_breaks_authentication(tmp_path: Path) -> None:
