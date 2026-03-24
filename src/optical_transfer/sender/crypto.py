@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from functools import lru_cache
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -28,6 +29,13 @@ class EncryptedChunk:
             ciphertext=ciphertext,
         )
 
+    def with_nonce(self, nonce: bytes) -> "EncryptedChunk":
+        return EncryptedChunk(
+            chunk_index=self.chunk_index,
+            nonce=nonce,
+            ciphertext=self.ciphertext,
+        )
+
 
 def encrypt_chunk(chunk: Chunk, password: str, session_id: bytes, salt: bytes) -> EncryptedChunk:
     key = _derive_key(password=password, salt=salt)
@@ -44,16 +52,16 @@ def decrypt_chunk(
     salt: bytes,
 ) -> Chunk:
     key = _derive_key(password=password, salt=salt)
-    nonce = _derive_nonce(session_id=session_id, chunk_index=encrypted_chunk.chunk_index)
     aead = AESGCM(key)
     plaintext = aead.decrypt(
-        nonce,
+        encrypted_chunk.nonce,
         encrypted_chunk.ciphertext,
         _associated_data(session_id, encrypted_chunk.chunk_index),
     )
     return Chunk(chunk_index=encrypted_chunk.chunk_index, data=plaintext)
 
 
+@lru_cache(maxsize=128)
 def _derive_key(password: str, salt: bytes) -> bytes:
     return hashlib.scrypt(
         password.encode("utf-8"),
