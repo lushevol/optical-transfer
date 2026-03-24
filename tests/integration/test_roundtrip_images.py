@@ -92,6 +92,23 @@ def test_extract_frames_builds_ffmpeg_command_and_collects_frames(tmp_path: Path
     assert frame_paths == [output_dir / "frame_000001.png", output_dir / "frame_000002.png"]
 
 
+def test_extract_frames_ignores_stale_frames_in_reused_output_dir(tmp_path: Path) -> None:
+    video_path = tmp_path / "session.mp4"
+    video_path.write_bytes(b"video")
+    output_dir = tmp_path / "frames"
+    output_dir.mkdir()
+    (output_dir / "frame_000099.png").write_bytes(b"stale")
+
+    def fake_run(command: list[str], **kwargs: object) -> object:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "frame_000001.png").write_bytes(b"fresh")
+        return object()
+
+    frame_paths = extract_frames(video_path, output_dir=output_dir, runner=fake_run)
+
+    assert frame_paths == [output_dir / "frame_000001.png"]
+
+
 def test_preprocess_and_decode_frame_roundtrip(tmp_path: Path) -> None:
     frame_path = tmp_path / "frame.png"
     encode_payload_image(b"adapter payload").convert("RGB").save(frame_path)

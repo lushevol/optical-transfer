@@ -15,6 +15,8 @@ def extract_frames(
     video_path = Path(video_path)
     output_dir = Path(output_dir) if output_dir is not None else video_path.with_name(f"{video_path.stem}_frames")
     output_dir.mkdir(parents=True, exist_ok=True)
+    for stale_frame in output_dir.glob("frame_*.png"):
+        stale_frame.unlink()
 
     output_pattern = output_dir / "frame_%06d.png"
     command = [
