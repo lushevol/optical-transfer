@@ -11,6 +11,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 from optical_transfer.protocol.header import decode_header
+import optical_transfer.cli as cli_module
 from optical_transfer.receiver.ffmpeg_frames import extract_frames
 from optical_transfer.receiver.preprocess import preprocess_frame
 from optical_transfer.receiver import qr_decode as qr_decode_module
@@ -19,6 +20,63 @@ from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFE
 from optical_transfer.sender.qr_payloads import decode_payload_image, encode_payload_image
 from optical_transfer.sender.session import build_session_payloads
 from optical_transfer.sender.manifest import manifest_from_json_bytes
+
+
+def test_receive_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
+    nested_dir = source_dir / "nested"
+    nested_dir.mkdir()
+    (nested_dir / "child.txt").write_text("nested file\n", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
+    rendered_frames = [encode_payload_image(payload) for payload in session.packet_sequence]
+    video_one = tmp_path / "recording1.mp4"
+    video_two = tmp_path / "recording2.mp4"
+    split_index = max(1, len(rendered_frames) // 2)
+    video_frames = {
+        video_one: rendered_frames[:split_index],
+        video_two: rendered_frames[split_index:] or rendered_frames[-1:],
+    }
+
+    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        copied_paths = []
+        for index, image in enumerate(video_frames[Path(video_path)]):
+            frame_path = output_dir / f"frame_{index:06d}.png"
+            image.save(frame_path)
+            copied_paths.append(frame_path)
+        return copied_paths
+
+    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+
+    parser = cli_module.build_parser()
+    args = parser.parse_args(
+        [
+            "receive",
+            str(video_one),
+            str(video_two),
+            "--password",
+            "correct horse battery staple",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    result = cli_module.handle_receive(args)
+    captured = capsys.readouterr()
+
+    restored_root = tmp_path / "restored"
+    restored_dirs = list(restored_root.iterdir())
+
+    assert result == 0
+    assert "input video count: 2" in captured.out
+    assert "final archive hash result: match" in captured.out
+    assert len(restored_dirs) == 1
+    assert (restored_dirs[0] / "root.txt").read_text(encoding="utf-8") == "root file\n"
+    assert (restored_dirs[0] / "nested" / "child.txt").read_text(encoding="utf-8") == "nested file\n"
 
 
 def test_image_based_roundtrip_restores_archive_without_video(tmp_path: Path) -> None:
