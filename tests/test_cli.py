@@ -35,6 +35,27 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.chunk_size > 0
 
 
+def test_send_command_rejects_ipv6_player_hosts(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "send",
+            "--source",
+            str(source_dir),
+            "--password",
+            "secret",
+            "--player-host",
+            "::1",
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        build_sender_config(args)
+
+
 def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
     assert build_preview_url("0.0.0.0", 8765) == "http://127.0.0.1:8765/"
     assert build_preview_url("::", 8765) == "http://127.0.0.1:8765/"

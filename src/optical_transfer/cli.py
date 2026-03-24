@@ -18,11 +18,12 @@ from optical_transfer.sender.session import build_session_payloads
 
 
 def build_sender_config(args: argparse.Namespace) -> SenderConfig:
+    player_host = _validate_player_host(args.player_host)
     return SenderConfig(
         source_dir=Path(args.source),
         password=args.password,
         chunk_size=args.chunk_size,
-        player_host=args.player_host,
+        player_host=player_host,
         player_port=args.player_port,
     )
 
@@ -39,6 +40,17 @@ def build_preview_url(host: str, port: int) -> str:
             if ipaddress.ip_address(host).version == 6:
                 host = f"[{host}]"
     return f"http://{host}:{port}/"
+
+
+def _validate_player_host(host: str) -> str:
+    normalized = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+    try:
+        parsed_host = ipaddress.ip_address(normalized)
+    except ValueError:
+        return host
+    if parsed_host.version == 6:
+        raise ValueError("IPv6 player hosts are not supported by the sender preview server")
+    return host
 
 
 def wait_forever() -> None:
