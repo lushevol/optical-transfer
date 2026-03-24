@@ -41,7 +41,7 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.password == "secret"
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
-    assert config.chunk_size > 0
+    assert config.chunk_size == 1536
 
 
 def test_send_command_rejects_ipv6_player_hosts(tmp_path):

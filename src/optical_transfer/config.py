@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_CHUNK_SIZE = 64 * 1024
+DEFAULT_CHUNK_SIZE = 1536
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 8765
 DEFAULT_PLAYER_ROOT = Path(__file__).resolve().parents[2] / "web" / "player"

@@ -30,7 +30,7 @@ optical-transfer send --source ./payload --password "secret"
 
 Useful options:
 
-- `--chunk-size` to tune QR payload density
+- `--chunk-size` to tune QR payload density; the default is a conservative `1536` bytes
 - `--player-host` and `--player-port` to control the local preview server
 
 ## Receiver
