@@ -44,6 +44,7 @@ def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
             if file_path.is_dir():
                 tar_info.type = tarfile.DIRTYPE
                 tar_info.size = 0
+                tar_info.mode = 0o755
                 tar.addfile(tar_info)
             else:
                 data = file_path.read_bytes()

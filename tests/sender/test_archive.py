@@ -28,4 +28,6 @@ def test_archive_directory_creates_tar_gz_with_relative_paths(tmp_path) -> None:
         assert all("\\" not in name for name in tar.getnames())
         assert tar.extractfile("root.txt").read() == b"root file\n"
         assert tar.extractfile("nested/child.txt").read() == b"nested file\n"
-        assert tar.getmember("nested/empty").isdir()
+        empty_member = tar.getmember("nested/empty")
+        assert empty_member.isdir()
+        assert empty_member.mode & 0o777 == 0o755
