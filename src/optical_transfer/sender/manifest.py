@@ -8,6 +8,8 @@ from optical_transfer.sender.archive import ArchiveResult
 
 
 DEFAULT_AEAD_ALGORITHM_ID = "aes-256-gcm"
+DEFAULT_OBJECT_TYPE = "single_directory"
+DEFAULT_ARCHIVE_FORMAT = "tar.gz"
 
 
 def build_manifest(
@@ -16,11 +18,14 @@ def build_manifest(
     total_chunks: int,
 ) -> Manifest:
     return Manifest(
+        object_type=DEFAULT_OBJECT_TYPE,
+        archive_format=DEFAULT_ARCHIVE_FORMAT,
         archive_byte_length=archive_result.archive_byte_length,
         archive_hash=archive_result.archive_hash,
         chunk_size=chunk_size,
         total_chunks=total_chunks,
         aead_algorithm_id=DEFAULT_AEAD_ALGORITHM_ID,
+        fec_parameters=None,
         original_directory_name=archive_result.original_directory_name,
     )
 
