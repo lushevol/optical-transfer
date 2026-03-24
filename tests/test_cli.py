@@ -8,6 +8,7 @@ import pytest
 
 from optical_transfer.cli import build_parser, build_preview_url, build_sender_config, handle_send, main
 from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
+from optical_transfer.receiver.report import SessionStats, build_session_report
 from optical_transfer.sender.player_server import create_player_app
 from optical_transfer.sender.session import build_session_payloads
 
@@ -15,7 +16,15 @@ from optical_transfer.sender.session import build_session_payloads
 def test_parser_accepts_send_and_receive_subcommands():
     parser = build_parser()
     assert parser.parse_args(["send"]).command == "send"
-    assert parser.parse_args(["receive"]).command == "receive"
+    assert parser.parse_args(["receive", "recording.mp4"]).command == "receive"
+
+
+def test_receive_command_accepts_multiple_videos():
+    parser = build_parser()
+    args = parser.parse_args(["receive", "recording1.mp4", "recording2.mp4", "--password", "secret"])
+
+    assert args.videos == ["recording1.mp4", "recording2.mp4"]
+    assert args.password == "secret"
 
 
 def test_send_command_builds_default_sender_config(tmp_path):
@@ -281,6 +290,100 @@ def test_handle_send_prints_preview_url_when_browser_launch_raises(tmp_path, mon
     assert "http://127.0.0.1:8765/" in captured.out
     assert server.shutdown_called is True
     assert server.server_close_called is True
+
+
+def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    packet_iter = iter(session.packet_sequence)
+    video_one = tmp_path / "recording1.mp4"
+    video_two = tmp_path / "recording2.mp4"
+    frame_paths = [tmp_path / f"frame-{index}.png" for index in range(len(session.packet_sequence))]
+    restored_dirs: list[Path] = []
+
+    real_restore_archive_bytes = cli_module.restore_archive_bytes
+
+    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
+        if Path(video_path) == video_one:
+            return frame_paths[:1]
+        if Path(video_path) == video_two:
+            return frame_paths[1:]
+        raise AssertionError(f"unexpected video path: {video_path}")
+
+    def fake_preprocess_frame(frame_path):
+        return frame_path
+
+    def fake_decode_qr_payload(image):
+        return next(packet_iter)
+
+    def fake_restore_archive_bytes(archive_bytes, output_root):
+        restored_dir = real_restore_archive_bytes(archive_bytes, output_root)
+        restored_dirs.append(restored_dir)
+        return restored_dir
+
+    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+    monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
+    monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
+    monkeypatch.setattr(cli_module, "restore_archive_bytes", fake_restore_archive_bytes, raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "receive",
+            str(video_one),
+            str(video_two),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    result = cli_module.handle_receive(args)
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "input video count: 2" in captured.out
+    assert f"total extracted frame count: {len(session.packet_sequence)}" in captured.out
+    assert f"successfully decoded frame count: {len(session.packet_sequence)}" in captured.out
+    assert f"raw packet count: {len(session.packet_sequence)}" in captured.out
+    assert f"deduplicated valid chunk count: {session.total_chunks}" in captured.out
+    assert "final archive hash result: match" in captured.out
+    assert restored_dirs and restored_dirs[0].exists()
+    assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_session_report_includes_required_summary_fields():
+    report = build_session_report(
+        SessionStats(
+            input_video_count=2,
+            total_extracted_frame_count=12,
+            successfully_decoded_frame_count=9,
+            raw_packet_count=8,
+            deduplicated_valid_chunk_count=4,
+            missing_chunk_count=0,
+            authentication_failure_count=1,
+            final_archive_hash_result="match",
+            stage_timings={"extract_frames": 1.234, "restore": 0.456},
+            restored_directory=Path("/tmp/restored-abc"),
+        )
+    )
+
+    assert "input video count: 2" in report
+    assert "total extracted frame count: 12" in report
+    assert "successfully decoded frame count: 9" in report
+    assert "raw packet count: 8" in report
+    assert "deduplicated valid chunk count: 4" in report
+    assert "missing chunk count: 0" in report
+    assert "authentication failure count: 1" in report
+    assert "final archive hash result: match" in report
+    assert "restored directory: /tmp/restored-abc" in report
+    assert "per-stage timing:" in report
+    assert "extract_frames: 1.234s" in report
+    assert "restore: 0.456s" in report
 
 
 def test_player_server_defaults_to_sender_port():
