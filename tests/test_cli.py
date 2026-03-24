@@ -1,3 +1,4 @@
+import inspect
 import json
 import urllib.request
 
@@ -32,13 +33,17 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.chunk_size > 0
 
 
+def test_player_server_defaults_to_sender_port():
+    assert inspect.signature(create_player_app).parameters["port"].default == DEFAULT_PLAYER_PORT
+
+
 def test_player_server_exposes_packet_sequence_json(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     payloads = build_session_payloads(source_dir, password="secret", chunk_size=32)
-    server = create_player_app(payloads)
+    server = create_player_app(payloads, port=0)
 
     try:
         with urllib.request.urlopen(f"http://{server.server_address[0]}:{server.server_address[1]}/payload.json") as response:

@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_ROOT
+from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT, DEFAULT_PLAYER_ROOT
 from optical_transfer.sender.session import SessionPayloadSet
 
 
@@ -73,7 +73,7 @@ def create_player_app(
     payloads: SessionPayloadSet,
     *,
     host: str = DEFAULT_PLAYER_HOST,
-    port: int = 0,
+    port: int = DEFAULT_PLAYER_PORT,
     player_root: Path | None = None,
 ) -> _PlayerHTTPServer:
     server = _PlayerHTTPServer((host, port), _PlayerRequestHandler)
