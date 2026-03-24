@@ -88,6 +88,28 @@ def test_tampering_packet_type_in_header_breaks_authentication(tmp_path: Path) -
         )
 
 
+def test_tampering_payload_length_in_header_breaks_authentication(tmp_path: Path) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "data.txt").write_text("hello world\n", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
+    packet_bytes = session.packet_payloads[-1]
+    header = decode_header(packet_bytes[:PROTOCOL_HEADER_SIZE])
+    tampered_header = replace(
+        header,
+        payload_length=header.payload_length - 1,
+        header_crc=None,
+    )
+
+    with pytest.raises(InvalidTag):
+        _decrypt_packet(
+            encrypted_blob=packet_bytes[PROTOCOL_HEADER_SIZE:],
+            session=session,
+            header=tampered_header,
+        )
+
+
 def _decrypt_packet(*, encrypted_blob: bytes, session, header) -> bytes:
     aead = AESGCM(session.crypto_session.key())
     return aead.decrypt(
@@ -98,6 +120,7 @@ def _decrypt_packet(*, encrypted_blob: bytes, session, header) -> bytes:
             packet_type=header.packet_type,
             chunk_index=header.chunk_index,
             total_chunks=header.total_chunks,
+            payload_length=header.payload_length,
             kdf_salt=header.kdf_salt,
         ),
     )
@@ -109,6 +132,7 @@ def _associated_data(
     packet_type: int,
     chunk_index: int,
     total_chunks: int,
+    payload_length: int,
     kdf_salt: bytes,
 ) -> bytes:
     return b"|".join(
@@ -117,6 +141,7 @@ def _associated_data(
             packet_type.to_bytes(1, "big", signed=False),
             chunk_index.to_bytes(8, "big", signed=False),
             total_chunks.to_bytes(4, "big", signed=False),
+            payload_length.to_bytes(4, "big", signed=False),
             kdf_salt,
         ]
     )

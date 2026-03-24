@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from optical_transfer.protocol.header import PacketHeader, encode_header
-from optical_transfer.sender.packets import build_data_packet
+from optical_transfer.sender.packets import build_data_packet, split_data_packet
 from optical_transfer.sender.session import build_session_payloads
 
 
@@ -20,6 +22,36 @@ def test_build_data_packet_wraps_header_and_ciphertext() -> None:
     ciphertext = b"ciphertext-bytes"
 
     assert build_data_packet(header, ciphertext) == encode_header(header) + ciphertext
+
+
+def test_split_data_packet_rejects_header_payload_length_tampering() -> None:
+    header = PacketHeader(
+        protocol_version=1,
+        capability_flags=0,
+        session_id=b"0123456789abcdef",
+        packet_type=1,
+        chunk_index=4,
+        total_chunks=8,
+        payload_length=16,
+        kdf_id=1,
+        kdf_salt=b"fedcba9876543210",
+    )
+    packet = build_data_packet(header, b"ciphertext-bytes")
+    tampered_header = PacketHeader(
+        protocol_version=header.protocol_version,
+        capability_flags=header.capability_flags,
+        session_id=header.session_id,
+        packet_type=header.packet_type,
+        chunk_index=header.chunk_index,
+        total_chunks=header.total_chunks,
+        payload_length=15,
+        kdf_id=header.kdf_id,
+        kdf_salt=header.kdf_salt,
+    )
+    tampered_packet = encode_header(tampered_header) + b"ciphertext-bytes"
+
+    with pytest.raises(ValueError):
+        split_data_packet(tampered_packet)
 
 
 def test_repeated_session_builds_do_not_reuse_identical_packet_bytes(tmp_path) -> None:

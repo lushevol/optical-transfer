@@ -110,7 +110,7 @@ def _build_manifest_packet(
         packet_type=PACKET_TYPE_MANIFEST,
         chunk_index=0,
         total_chunks=total_chunks,
-        payload_length=len(manifest_payload),
+        payload_length=len(manifest_payload) + _AEAD_NONCE_SIZE + 16,
         kdf_salt=kdf_salt,
     )
     header = PacketHeader(
@@ -142,7 +142,7 @@ def _build_data_packet(
         packet_type=PACKET_TYPE_DATA,
         chunk_index=chunk_index,
         total_chunks=total_chunks,
-        payload_length=len(chunk_data),
+        payload_length=len(chunk_data) + _AEAD_NONCE_SIZE + 16,
         kdf_salt=kdf_salt,
     )
     header = PacketHeader(
@@ -179,6 +179,7 @@ def _encrypt_payload(
             packet_type=packet_type,
             chunk_index=chunk_index,
             total_chunks=total_chunks,
+            payload_length=payload_length,
             kdf_salt=kdf_salt,
         ),
     )
@@ -195,6 +196,7 @@ def _associated_data(
     packet_type: int,
     chunk_index: int,
     total_chunks: int,
+    payload_length: int,
     kdf_salt: bytes,
 ) -> bytes:
     return b"|".join(
@@ -203,6 +205,7 @@ def _associated_data(
             packet_type.to_bytes(1, "big", signed=False),
             chunk_index.to_bytes(8, "big", signed=False),
             total_chunks.to_bytes(4, "big", signed=False),
+            payload_length.to_bytes(4, "big", signed=False),
             kdf_salt,
         ]
     )

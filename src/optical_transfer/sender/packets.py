@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from optical_transfer.protocol.header import PacketHeader, encode_header
+from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 
 
 PACKET_TYPE_MANIFEST = 0
@@ -23,8 +24,13 @@ def build_data_packet(header: PacketHeader, ciphertext: bytes) -> bytes:
 
 
 def split_data_packet(packet: bytes) -> tuple[PacketHeader, bytes]:
-    from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
     from optical_transfer.protocol.header import decode_header
 
+    if len(packet) < PROTOCOL_HEADER_SIZE:
+        raise ValueError("packet is shorter than the protocol header")
+
     header = decode_header(packet[:PROTOCOL_HEADER_SIZE])
-    return header, packet[PROTOCOL_HEADER_SIZE:]
+    payload = packet[PROTOCOL_HEADER_SIZE:]
+    if len(payload) != header.payload_length:
+        raise ValueError("packet payload length does not match header")
+    return header, payload
