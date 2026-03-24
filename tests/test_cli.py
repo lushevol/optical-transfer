@@ -202,6 +202,66 @@ def test_handle_send_prints_preview_url_when_browser_launch_fails(tmp_path, monk
     assert "http://127.0.0.1:8765/" in captured.out
 
 
+def test_handle_send_prints_preview_url_when_browser_launch_raises(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+
+    calls: list[str] = []
+
+    class DummyPayloads:
+        session_id = b"session"
+        packet_sequence = [b"packet-1"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def __init__(self) -> None:
+            self.shutdown_called = False
+            self.server_close_called = False
+
+        def shutdown(self) -> None:
+            self.shutdown_called = True
+
+        def server_close(self) -> None:
+            self.server_close_called = True
+
+    server = DummyServer()
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        calls.append("build_session_payloads")
+        return DummyPayloads()
+
+    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+        calls.append("create_player_app")
+        return server
+
+    def fake_launch_player(url_arg):
+        calls.append("launch_player")
+        raise RuntimeError("browser unavailable")
+
+    def fake_wait_forever():
+        calls.append("wait_forever")
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    result = handle_send(args)
+
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert calls == ["build_session_payloads", "create_player_app", "launch_player", "wait_forever"]
+    assert "http://127.0.0.1:8765/" in captured.out
+    assert server.shutdown_called is True
+    assert server.server_close_called is True
+
+
 def test_player_server_defaults_to_sender_port():
     assert inspect.signature(create_player_app).parameters["port"].default == DEFAULT_PLAYER_PORT
 

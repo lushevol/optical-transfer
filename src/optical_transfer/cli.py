@@ -54,7 +54,10 @@ def run_preview_session(
 ) -> None:
     preview_url = build_preview_url(server.server_address[0], server.server_address[1])
     try:
-        launched = launch_fn(preview_url)
+        try:
+            launched = launch_fn(preview_url)
+        except Exception:
+            launched = False
         if not launched:
             print(f"Preview URL: {preview_url}")
         wait_fn()
