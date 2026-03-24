@@ -25,21 +25,30 @@ def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w", format=tarfile.PAX_FORMAT) as tar:
         archive_members = sorted(
-            (p for p in source_dir.rglob("*") if p.is_file()),
+            (
+                p
+                for p in source_dir.rglob("*")
+                if p.is_file() or (p.is_dir() and not any(p.iterdir()))
+            ),
             key=lambda path: (len(path.relative_to(source_dir).parts), path.relative_to(source_dir).as_posix()),
         )
         for file_path in archive_members:
             relative_path = file_path.relative_to(source_dir)
-            data = file_path.read_bytes()
-            tar_info = tarfile.TarInfo(name=str(relative_path))
-            tar_info.size = len(data)
+            tar_info = tarfile.TarInfo(name=relative_path.as_posix())
             tar_info.mode = 0o644
             tar_info.mtime = 0
             tar_info.uid = 0
             tar_info.gid = 0
             tar_info.uname = ""
             tar_info.gname = ""
-            tar.addfile(tar_info, io.BytesIO(data))
+            if file_path.is_dir():
+                tar_info.type = tarfile.DIRTYPE
+                tar_info.size = 0
+                tar.addfile(tar_info)
+            else:
+                data = file_path.read_bytes()
+                tar_info.size = len(data)
+                tar.addfile(tar_info, io.BytesIO(data))
 
     archive_bytes = gzip.compress(tar_buffer.getvalue(), mtime=0)
     output_path.parent.mkdir(parents=True, exist_ok=True)
