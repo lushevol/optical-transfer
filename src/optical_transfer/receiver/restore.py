@@ -18,9 +18,10 @@ def restore_archive_bytes(archive_bytes: bytes, output_root: Path) -> Path:
 
 
 def _extract_tar_members(archive: tarfile.TarFile, destination: Path) -> None:
+    resolved_destination = destination.resolve()
     for member in archive.getmembers():
         target_path = (destination / member.name).resolve()
-        if destination not in target_path.parents and target_path != destination:
+        if resolved_destination not in target_path.parents and target_path != resolved_destination:
             raise ValueError(f"refusing to extract path outside destination: {member.name}")
 
         if member.isdir():
