@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import webbrowser
 from pathlib import Path
 
 from optical_transfer.config import (
@@ -9,6 +10,8 @@ from optical_transfer.config import (
     DEFAULT_PLAYER_PORT,
     SenderConfig,
 )
+from optical_transfer.sender.player_server import create_player_app
+from optical_transfer.sender.session import build_session_payloads
 
 
 def build_sender_config(args: argparse.Namespace) -> SenderConfig:
@@ -19,6 +22,10 @@ def build_sender_config(args: argparse.Namespace) -> SenderConfig:
         player_host=args.player_host,
         player_port=args.player_port,
     )
+
+
+def launch_player(url: str) -> bool:
+    return webbrowser.open(url)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,7 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def handle_send(args: argparse.Namespace) -> int:
-    build_sender_config(args)
+    config = build_sender_config(args)
+    payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
+    server = create_player_app(
+        payloads,
+        host=config.player_host,
+        port=config.player_port,
+        player_root=config.player_root,
+    )
+    launch_player(f"http://{server.server_address[0]}:{server.server_address[1]}/")
     return 0
 
 

@@ -2,9 +2,10 @@ import inspect
 import json
 import urllib.request
 
+import optical_transfer.cli as cli_module
 import pytest
 
-from optical_transfer.cli import build_parser, build_sender_config, main
+from optical_transfer.cli import build_parser, build_sender_config, handle_send, main
 from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
 from optical_transfer.sender.player_server import create_player_app
 from optical_transfer.sender.session import build_session_payloads
@@ -31,6 +32,49 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
     assert config.chunk_size > 0
+
+
+def test_handle_send_starts_session_player_and_launches_url(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+
+    calls: list[tuple[str, object]] = []
+
+    class DummyPayloads:
+        def __init__(self) -> None:
+            self.session_id = b"session"
+            self.packet_sequence = [b"packet-1", b"packet-2"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+        player_root = None
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
+        return DummyPayloads()
+
+    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+        calls.append(("create_player_app", (payloads_arg, host, port, player_root)))
+        return DummyServer()
+
+    def fake_launch_player(url_arg):
+        calls.append(("launch_player", url_arg))
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
+
+    result = handle_send(args)
+
+    assert result == 0
+    assert calls[0][0] == "build_session_payloads"
+    assert calls[1][0] == "create_player_app"
+    assert calls[2][0] == "launch_player"
+    assert calls[2][1] == "http://127.0.0.1:8765/"
 
 
 def test_player_server_defaults_to_sender_port():
