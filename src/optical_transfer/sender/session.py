@@ -107,7 +107,11 @@ def _build_manifest_packet(
         payload=manifest_payload,
         crypto_session=crypto_session,
         session_id=session_id,
+        packet_type=PACKET_TYPE_MANIFEST,
         chunk_index=0,
+        total_chunks=total_chunks,
+        payload_length=len(manifest_payload),
+        kdf_salt=kdf_salt,
     )
     header = PacketHeader(
         protocol_version=PROTOCOL_HEADER_VERSION,
@@ -135,7 +139,11 @@ def _build_data_packet(
         payload=chunk_data,
         crypto_session=crypto_session,
         session_id=session_id,
+        packet_type=PACKET_TYPE_DATA,
         chunk_index=chunk_index,
+        total_chunks=total_chunks,
+        payload_length=len(chunk_data),
+        kdf_salt=kdf_salt,
     )
     header = PacketHeader(
         protocol_version=PROTOCOL_HEADER_VERSION,
@@ -155,11 +163,25 @@ def _encrypt_payload(
     payload: bytes,
     crypto_session: ChunkCryptoSession,
     session_id: bytes,
+    packet_type: int,
     chunk_index: int,
+    total_chunks: int,
+    payload_length: int,
+    kdf_salt: bytes,
 ) -> bytes:
     nonce = _derive_nonce()
     aead = AESGCM(crypto_session.key())
-    ciphertext = aead.encrypt(nonce, payload, _associated_data(session_id, chunk_index))
+    ciphertext = aead.encrypt(
+        nonce,
+        payload,
+        _associated_data(
+            session_id=session_id,
+            packet_type=packet_type,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            kdf_salt=kdf_salt,
+        ),
+    )
     return nonce + ciphertext
 
 
@@ -167,8 +189,23 @@ def _derive_nonce() -> bytes:
     return secrets.token_bytes(_AEAD_NONCE_SIZE)
 
 
-def _associated_data(session_id: bytes, chunk_index: int) -> bytes:
-    return session_id + chunk_index.to_bytes(8, "big", signed=False)
+def _associated_data(
+    *,
+    session_id: bytes,
+    packet_type: int,
+    chunk_index: int,
+    total_chunks: int,
+    kdf_salt: bytes,
+) -> bytes:
+    return b"|".join(
+        [
+            session_id,
+            packet_type.to_bytes(1, "big", signed=False),
+            chunk_index.to_bytes(8, "big", signed=False),
+            total_chunks.to_bytes(4, "big", signed=False),
+            kdf_salt,
+        ]
+    )
 
 
 def _derive_session_id() -> bytes:
