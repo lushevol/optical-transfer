@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
-from functools import lru_cache
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -37,8 +36,23 @@ class EncryptedChunk:
         )
 
 
-def encrypt_chunk(chunk: Chunk, password: str, session_id: bytes, salt: bytes) -> EncryptedChunk:
-    key = _derive_key(password=password, salt=salt)
+@dataclass(slots=True)
+class ChunkCryptoSession:
+    password: str
+    salt: bytes
+    _key: bytes | None = field(default=None, init=False, repr=False)
+
+    def key(self) -> bytes:
+        if self._key is None:
+            self._key = _derive_key(self.password, self.salt)
+        return self._key
+
+    def clear(self) -> None:
+        self._key = None
+
+
+def encrypt_chunk(chunk: Chunk, crypto_session: ChunkCryptoSession, session_id: bytes) -> EncryptedChunk:
+    key = crypto_session.key()
     nonce = _derive_nonce(session_id=session_id, chunk_index=chunk.chunk_index)
     aead = AESGCM(key)
     ciphertext = aead.encrypt(nonce, chunk.data, _associated_data(session_id, chunk.chunk_index))
@@ -47,11 +61,10 @@ def encrypt_chunk(chunk: Chunk, password: str, session_id: bytes, salt: bytes) -
 
 def decrypt_chunk(
     encrypted_chunk: EncryptedChunk,
-    password: str,
+    crypto_session: ChunkCryptoSession,
     session_id: bytes,
-    salt: bytes,
 ) -> Chunk:
-    key = _derive_key(password=password, salt=salt)
+    key = crypto_session.key()
     aead = AESGCM(key)
     plaintext = aead.decrypt(
         encrypted_chunk.nonce,
@@ -61,7 +74,6 @@ def decrypt_chunk(
     return Chunk(chunk_index=encrypted_chunk.chunk_index, data=plaintext)
 
 
-@lru_cache(maxsize=128)
 def _derive_key(password: str, salt: bytes) -> bytes:
     return hashlib.scrypt(
         password.encode("utf-8"),
