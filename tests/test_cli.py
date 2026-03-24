@@ -1,5 +1,6 @@
 import inspect
 import json
+from pathlib import Path
 import urllib.request
 
 import optical_transfer.cli as cli_module
@@ -148,8 +149,76 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     assert server.server_close_called is True
 
 
+def test_handle_send_prints_preview_url_when_browser_launch_fails(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+
+    class DummyPayloads:
+        session_id = b"session"
+        packet_sequence = [b"packet-1"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        return DummyPayloads()
+
+    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+        return DummyServer()
+
+    def fake_launch_player(url_arg):
+        return False
+
+    def fake_wait_forever():
+        return None
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    result = handle_send(args)
+
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "http://127.0.0.1:8765/" in captured.out
+
+
 def test_player_server_defaults_to_sender_port():
     assert inspect.signature(create_player_app).parameters["port"].default == DEFAULT_PLAYER_PORT
+
+
+def test_player_server_serves_assets_without_repo_files(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    payloads = build_session_payloads(source_dir, password="secret", chunk_size=32)
+    server = create_player_app(payloads, port=0, player_root=Path("/does/not/exist"))
+
+    try:
+        base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+        with urllib.request.urlopen(f"{base_url}/") as response:
+            index_html = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{base_url}/player.js") as response:
+            player_js = response.read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "Optical Transfer" in index_html
+    assert "loadPayload" in player_js
 
 
 def test_player_server_exposes_packet_sequence_json(tmp_path):

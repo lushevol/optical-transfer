@@ -41,8 +41,11 @@ def run_preview_session(
     launch_fn=launch_player,
     wait_fn=wait_forever,
 ) -> None:
+    preview_url = f"http://{server.server_address[0]}:{server.server_address[1]}/"
     try:
-        launch_fn(f"http://{server.server_address[0]}:{server.server_address[1]}/")
+        launched = launch_fn(preview_url)
+        if not launched:
+            print(f"Preview URL: {preview_url}")
         wait_fn()
     finally:
         server.shutdown()
