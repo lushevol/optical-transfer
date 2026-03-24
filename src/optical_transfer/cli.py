@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import webbrowser
 from contextlib import suppress
+import ipaddress
 from pathlib import Path
 from threading import Event
 
@@ -30,6 +31,16 @@ def launch_player(url: str) -> bool:
     return webbrowser.open(url)
 
 
+def build_preview_url(host: str, port: int) -> str:
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    else:
+        with suppress(ValueError):
+            if ipaddress.ip_address(host).version == 6:
+                host = f"[{host}]"
+    return f"http://{host}:{port}/"
+
+
 def wait_forever() -> None:
     with suppress(KeyboardInterrupt):
         Event().wait()
@@ -41,7 +52,7 @@ def run_preview_session(
     launch_fn=launch_player,
     wait_fn=wait_forever,
 ) -> None:
-    preview_url = f"http://{server.server_address[0]}:{server.server_address[1]}/"
+    preview_url = build_preview_url(server.server_address[0], server.server_address[1])
     try:
         launched = launch_fn(preview_url)
         if not launched:

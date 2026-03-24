@@ -6,7 +6,7 @@ import urllib.request
 import optical_transfer.cli as cli_module
 import pytest
 
-from optical_transfer.cli import build_parser, build_sender_config, handle_send, main
+from optical_transfer.cli import build_parser, build_preview_url, build_sender_config, handle_send, main
 from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
 from optical_transfer.sender.player_server import create_player_app
 from optical_transfer.sender.session import build_session_payloads
@@ -33,6 +33,13 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
     assert config.chunk_size > 0
+
+
+def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
+    assert build_preview_url("0.0.0.0", 8765) == "http://127.0.0.1:8765/"
+    assert build_preview_url("::", 8765) == "http://127.0.0.1:8765/"
+    assert build_preview_url("::1", 8765) == "http://[::1]:8765/"
+    assert build_preview_url("example.com", 8765) == "http://example.com:8765/"
 
 
 def test_handle_send_starts_session_player_and_launches_url(tmp_path, monkeypatch):
