@@ -21,9 +21,17 @@ def encode_payload_image(payload: bytes) -> Image.Image:
 def decode_payload_image(image: Image.Image) -> bytes:
     grayscale = image.convert("1")
     bits = [1 if pixel else 0 for pixel in grayscale.getdata()]
+    if len(bits) < 32:
+        raise ValueError("image does not contain a complete payload length prefix")
+
     header = _bits_to_bytes(bits[:32])
     payload_length = int.from_bytes(header, "big")
-    payload_bits = bits[32 : 32 + payload_length * 8]
+    payload_bits_length = payload_length * 8
+    available_payload_bits = len(bits) - 32
+    if payload_bits_length > available_payload_bits:
+        raise ValueError("image payload is truncated")
+
+    payload_bits = bits[32 : 32 + payload_bits_length]
     return _bits_to_bytes(payload_bits)
 
 

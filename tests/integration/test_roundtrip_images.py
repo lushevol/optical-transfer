@@ -4,6 +4,7 @@ import io
 import tarfile
 from pathlib import Path
 
+import pytest
 from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 from optical_transfer.protocol.header import decode_header
 from optical_transfer.sender.crypto import EncryptedChunk, decrypt_chunk
@@ -57,3 +58,12 @@ def test_image_based_roundtrip_restores_archive_without_video(tmp_path: Path) ->
 
     assert (restored_dir / "root.txt").read_text(encoding="utf-8") == "root file\n"
     assert (restored_dir / "nested" / "child.txt").read_text(encoding="utf-8") == "nested file\n"
+
+
+def test_decode_payload_image_rejects_truncated_payload() -> None:
+    from PIL import Image
+
+    image = Image.new("1", (4, 4), 0)
+
+    with pytest.raises(ValueError):
+        decode_payload_image(image)

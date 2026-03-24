@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import tempfile
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,11 +14,7 @@ from optical_transfer.sender.archive import ArchiveResult, archive_directory
 from optical_transfer.sender.chunker import chunk_bytes
 from optical_transfer.sender.crypto import ChunkCryptoSession
 from optical_transfer.sender.manifest import build_manifest, manifest_to_json_bytes
-from optical_transfer.sender.packets import (
-    PACKET_TYPE_DATA,
-    PACKET_TYPE_MANIFEST,
-    build_data_packet,
-)
+from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, build_data_packet
 
 
 _AEAD_NONCE_SIZE = 12
@@ -63,8 +59,8 @@ def build_session_payloads(source_dir: Path, password: str, chunk_size: int) -> 
     chunks = chunk_bytes(archive_bytes, chunk_size)
     manifest = build_manifest(archive_result, chunk_size=chunk_size, total_chunks=len(chunks))
 
-    session_id = _derive_session_id(archive_result, chunk_size, len(chunks))
-    kdf_salt = _derive_kdf_salt(archive_result.archive_hash)
+    session_id = _derive_session_id()
+    kdf_salt = _derive_kdf_salt()
     crypto_session = ChunkCryptoSession(password=password, salt=kdf_salt)
 
     manifest_packet = _build_manifest_packet(
@@ -112,7 +108,6 @@ def _build_manifest_packet(
         crypto_session=crypto_session,
         session_id=session_id,
         chunk_index=0,
-        packet_type=PACKET_TYPE_MANIFEST,
     )
     header = PacketHeader(
         protocol_version=PROTOCOL_HEADER_VERSION,
@@ -141,7 +136,6 @@ def _build_data_packet(
         crypto_session=crypto_session,
         session_id=session_id,
         chunk_index=chunk_index,
-        packet_type=PACKET_TYPE_DATA,
     )
     header = PacketHeader(
         protocol_version=PROTOCOL_HEADER_VERSION,
@@ -162,43 +156,27 @@ def _encrypt_payload(
     crypto_session: ChunkCryptoSession,
     session_id: bytes,
     chunk_index: int,
-    packet_type: int,
 ) -> bytes:
-    nonce = _derive_nonce(session_id=session_id, chunk_index=chunk_index, packet_type=packet_type)
+    nonce = _derive_nonce()
     aead = AESGCM(crypto_session.key())
     ciphertext = aead.encrypt(nonce, payload, _associated_data(session_id, chunk_index))
     return nonce + ciphertext
 
 
-def _derive_nonce(session_id: bytes, chunk_index: int, packet_type: int) -> bytes:
-    return hashlib.blake2s(
-        session_id + packet_type.to_bytes(1, "big", signed=False) + chunk_index.to_bytes(8, "big", signed=False),
-        digest_size=_AEAD_NONCE_SIZE,
-    ).digest()
+def _derive_nonce() -> bytes:
+    return secrets.token_bytes(_AEAD_NONCE_SIZE)
 
 
 def _associated_data(session_id: bytes, chunk_index: int) -> bytes:
     return session_id + chunk_index.to_bytes(8, "big", signed=False)
 
 
-def _derive_session_id(archive_result: ArchiveResult, chunk_size: int, total_chunks: int) -> bytes:
-    digest = hashlib.sha256(
-        "|".join(
-            [
-                archive_result.archive_hash,
-                str(archive_result.archive_byte_length),
-                str(chunk_size),
-                str(total_chunks),
-                archive_result.original_directory_name or "",
-            ]
-        ).encode("utf-8")
-    ).digest()
-    return digest[:16]
+def _derive_session_id() -> bytes:
+    return secrets.token_bytes(16)
 
 
-def _derive_kdf_salt(archive_hash: str) -> bytes:
-    digest = hashlib.sha256(f"optical-transfer:{archive_hash}".encode("utf-8")).digest()
-    return digest[:PROTOCOL_KDF_SALT_SIZE]
+def _derive_kdf_salt() -> bytes:
+    return secrets.token_bytes(PROTOCOL_KDF_SALT_SIZE)
 
 
 def _archive_to_temporary_path(source_dir: Path) -> ArchiveResult:
