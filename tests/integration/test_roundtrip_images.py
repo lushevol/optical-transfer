@@ -46,7 +46,7 @@ def test_image_based_roundtrip_restores_archive_without_video(tmp_path: Path) ->
             decrypted_chunks.append((header.chunk_index, plaintext))
 
     archive_bytes = b"".join(chunk_data for _, chunk_data in sorted(decrypted_chunks, key=lambda item: item[0]))
-    assert archive_bytes == session.archive_result.archive_path.read_bytes()
+    assert archive_bytes == session.archive_bytes
 
     restored_dir = tmp_path / "restored"
     restored_dir.mkdir()

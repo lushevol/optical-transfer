@@ -25,6 +25,7 @@ _KDF_ID = 1
 class SessionPayloadSet:
     session_id: bytes
     archive_result: ArchiveResult
+    archive_bytes: bytes
     manifest: Manifest
     crypto_session: ChunkCryptoSession
     kdf_salt: bytes
@@ -45,10 +46,6 @@ class SessionPayloadSet:
     def packets(self) -> list[bytes]:
         return self.packet_payloads
 
-    @property
-    def archive_bytes(self) -> bytes:
-        return self.archive_result.archive_path.read_bytes()
-
 
 def build_session_payloads(source_dir: Path, password: str, chunk_size: int) -> SessionPayloadSet:
     if chunk_size <= 0:
@@ -56,35 +53,39 @@ def build_session_payloads(source_dir: Path, password: str, chunk_size: int) -> 
 
     archive_result = _archive_to_temporary_path(Path(source_dir))
     archive_bytes = archive_result.archive_path.read_bytes()
-    chunks = chunk_bytes(archive_bytes, chunk_size)
-    manifest = build_manifest(archive_result, chunk_size=chunk_size, total_chunks=len(chunks))
+    try:
+        chunks = chunk_bytes(archive_bytes, chunk_size)
+        manifest = build_manifest(archive_result, chunk_size=chunk_size, total_chunks=len(chunks))
 
-    session_id = _derive_session_id()
-    kdf_salt = _derive_kdf_salt()
-    crypto_session = ChunkCryptoSession(password=password, salt=kdf_salt)
+        session_id = _derive_session_id()
+        kdf_salt = _derive_kdf_salt()
+        crypto_session = ChunkCryptoSession(password=password, salt=kdf_salt)
 
-    manifest_packet = _build_manifest_packet(
-        manifest=manifest,
-        crypto_session=crypto_session,
-        session_id=session_id,
-        total_chunks=len(chunks),
-        kdf_salt=kdf_salt,
-    )
-    data_packets = [
-        _build_data_packet(
-            chunk_index=chunk.chunk_index,
-            chunk_data=chunk.data,
+        manifest_packet = _build_manifest_packet(
+            manifest=manifest,
             crypto_session=crypto_session,
             session_id=session_id,
             total_chunks=len(chunks),
             kdf_salt=kdf_salt,
         )
-        for chunk in chunks
-    ]
+        data_packets = [
+            _build_data_packet(
+                chunk_index=chunk.chunk_index,
+                chunk_data=chunk.data,
+                crypto_session=crypto_session,
+                session_id=session_id,
+                total_chunks=len(chunks),
+                kdf_salt=kdf_salt,
+            )
+            for chunk in chunks
+        ]
+    finally:
+        archive_result.archive_path.unlink(missing_ok=True)
 
     return SessionPayloadSet(
         session_id=session_id,
         archive_result=archive_result,
+        archive_bytes=archive_bytes,
         manifest=manifest,
         crypto_session=crypto_session,
         kdf_salt=kdf_salt,

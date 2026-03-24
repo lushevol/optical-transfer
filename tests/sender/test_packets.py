@@ -63,3 +63,14 @@ def test_repeated_session_builds_do_not_reuse_identical_packet_bytes(tmp_path) -
     second = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
 
     assert first.packet_payloads != second.packet_payloads
+
+
+def test_build_session_payloads_removes_temporary_archive(tmp_path) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "data.txt").write_text("hello world\n", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
+
+    assert session.archive_result.archive_path.exists() is False
+    assert session.archive_bytes.startswith(b"\x1f\x8b")
