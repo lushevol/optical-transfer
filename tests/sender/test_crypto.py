@@ -170,3 +170,19 @@ def test_decrypt_chunk_rejects_tampered_nonce() -> None:
             crypto_session=session,
             session_id=b"0123456789abcdef",
         )
+
+
+def test_encrypt_chunk_uses_distinct_nonces_for_repeated_chunk_index() -> None:
+    session = ChunkCryptoSession(
+        password="correct horse battery staple",
+        salt=b"fedcba9876543210",
+    )
+    session_id = b"0123456789abcdef"
+    chunk = Chunk(chunk_index=9, data=b"payload-bytes")
+
+    encrypted_a = encrypt_chunk(chunk=chunk, crypto_session=session, session_id=session_id)
+    encrypted_b = encrypt_chunk(chunk=chunk, crypto_session=session, session_id=session_id)
+
+    assert encrypted_a.nonce != encrypted_b.nonce
+    assert decrypt_chunk(encrypted_chunk=encrypted_a, crypto_session=session, session_id=session_id) == chunk
+    assert decrypt_chunk(encrypted_chunk=encrypted_b, crypto_session=session, session_id=session_id) == chunk

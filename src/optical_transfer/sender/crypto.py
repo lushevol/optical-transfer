@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import secrets
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -53,7 +54,7 @@ class ChunkCryptoSession:
 
 def encrypt_chunk(chunk: Chunk, crypto_session: ChunkCryptoSession, session_id: bytes) -> EncryptedChunk:
     key = crypto_session.key()
-    nonce = _derive_nonce(session_id=session_id, chunk_index=chunk.chunk_index)
+    nonce = secrets.token_bytes(_NONCE_LENGTH)
     aead = AESGCM(key)
     ciphertext = aead.encrypt(nonce, chunk.data, _associated_data(session_id, chunk.chunk_index))
     return EncryptedChunk(chunk_index=chunk.chunk_index, nonce=nonce, ciphertext=ciphertext)
@@ -83,13 +84,6 @@ def _derive_key(password: str, salt: bytes) -> bytes:
         p=_SCRYPT_P,
         dklen=_KEY_LENGTH,
     )
-
-
-def _derive_nonce(session_id: bytes, chunk_index: int) -> bytes:
-    if chunk_index < 0:
-        raise ValueError("chunk_index must be non-negative")
-    digest = hashlib.sha256(session_id + chunk_index.to_bytes(8, "big", signed=False)).digest()
-    return digest[:_NONCE_LENGTH]
 
 
 def _associated_data(session_id: bytes, chunk_index: int) -> bytes:
