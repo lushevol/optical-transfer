@@ -36,7 +36,7 @@ class EncryptedChunk:
         )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ChunkCryptoSession:
     password: str
     salt: bytes
@@ -44,11 +44,11 @@ class ChunkCryptoSession:
 
     def key(self) -> bytes:
         if self._key is None:
-            self._key = _derive_key(self.password, self.salt)
+            object.__setattr__(self, "_key", _derive_key(self.password, self.salt))
         return self._key
 
     def clear(self) -> None:
-        self._key = None
+        object.__setattr__(self, "_key", None)
 
 
 def encrypt_chunk(chunk: Chunk, crypto_session: ChunkCryptoSession, session_id: bytes) -> EncryptedChunk:

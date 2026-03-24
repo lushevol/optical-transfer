@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 from cryptography.exceptions import InvalidTag
 
@@ -130,6 +132,21 @@ def test_chunk_crypto_session_clear_forces_rederivation(monkeypatch) -> None:
     )
 
     assert calls == 2
+
+
+def test_chunk_crypto_session_rejects_mutating_inputs_after_key_derivation() -> None:
+    session = ChunkCryptoSession(
+        password="correct horse battery staple",
+        salt=b"fedcba9876543210",
+    )
+
+    session.key()
+
+    with pytest.raises(FrozenInstanceError):
+        session.password = "different password"
+
+    with pytest.raises(FrozenInstanceError):
+        session.salt = b"0123456789abcdef"
 
 
 def test_decrypt_chunk_rejects_tampered_nonce() -> None:
