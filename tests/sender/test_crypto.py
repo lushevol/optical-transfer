@@ -134,6 +134,23 @@ def test_chunk_crypto_session_clear_forces_rederivation(monkeypatch) -> None:
     assert calls == 2
 
 
+def test_chunk_crypto_session_hash_stays_stable_across_key_cache_mutations() -> None:
+    session = ChunkCryptoSession(
+        password="correct horse battery staple",
+        salt=b"fedcba9876543210",
+    )
+    registry = {session: "present"}
+    initial_hash = hash(session)
+
+    session.key()
+    assert hash(session) == initial_hash
+    assert registry[session] == "present"
+
+    session.clear()
+    assert hash(session) == initial_hash
+    assert registry[session] == "present"
+
+
 def test_chunk_crypto_session_rejects_mutating_inputs_after_key_derivation() -> None:
     session = ChunkCryptoSession(
         password="correct horse battery staple",

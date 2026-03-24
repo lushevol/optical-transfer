@@ -41,7 +41,7 @@ class EncryptedChunk:
 class ChunkCryptoSession:
     password: str
     salt: bytes
-    _key: bytes | None = field(default=None, init=False, repr=False)
+    _key: bytes | None = field(default=None, init=False, repr=False, compare=False, hash=False)
 
     def key(self) -> bytes:
         if self._key is None:
