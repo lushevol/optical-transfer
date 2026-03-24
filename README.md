@@ -10,19 +10,19 @@ The project is developed against Python 3.12.
 2. Install the package in editable mode: `pip install -e .`
 3. Install or verify the native tools used by the runtime:
    - `ffmpeg` for receiver frame extraction
-   - `Chrome` or `Chromium` for the sender preview player
-4. If you are running outside the prepared development environment, install the Python runtime dependencies used by the pipeline: `Pillow`, `numpy`, `cryptography`, `opencv-python`, `qrcode`, and a QR decoder such as `pyzbar` or a ZXing-backed binding.
+4. If you want the sender to open a browser for you, make sure a default browser is available on the machine.
+5. If you are running outside the prepared development environment, install the Python runtime dependencies used by the pipeline: `Pillow`, `numpy`, `cryptography`, `opencv-python`, `qrcode`, and a QR decoder such as `pyzbar` or a ZXing-backed binding.
 
 ## Requirements
 
 - Python 3.12+
 - `ffmpeg`
-- `Chrome` or `Chromium`
+- A browser is optional and only needed if you use `send --open-browser`
 - The Python packages listed above if they are not already present in your environment
 
 ## Sender
 
-The sender packages a single directory, encrypts chunk payloads, and opens a local preview page that loops QR frames in the browser.
+The sender packages a single directory, encrypts chunk payloads, and starts a local preview server that serves the looping QR frames.
 
 ```bash
 optical-transfer send --source ./payload --password "secret"
@@ -32,6 +32,7 @@ Useful options:
 
 - `--chunk-size` to tune QR payload density; the default is a conservative `1536` bytes
 - `--player-host` and `--player-port` to control the local preview server
+- `--open-browser` to ask the sender to launch the preview URL in your default browser
 
 ## Receiver
 

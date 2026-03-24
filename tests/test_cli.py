@@ -44,6 +44,13 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.chunk_size == 1536
 
 
+def test_send_command_does_not_open_browser_by_default():
+    parser = build_parser()
+    args = parser.parse_args(["send"])
+
+    assert args.open_browser is False
+
+
 def test_send_command_rejects_ipv6_player_hosts(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -72,7 +79,7 @@ def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
     assert build_preview_url("example.com", 8765) == "http://example.com:8765/"
 
 
-def test_handle_send_starts_session_player_and_launches_url(tmp_path, monkeypatch):
+def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -121,12 +128,65 @@ def test_handle_send_starts_session_player_and_launches_url(tmp_path, monkeypatc
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
     result = handle_send(args)
+    captured = capsys.readouterr()
 
     assert result == 0
     assert calls[0][0] == "build_session_payloads"
     assert calls[1][0] == "create_player_app"
-    assert calls[2][0] == "launch_player"
-    assert calls[2][1] == "http://127.0.0.1:8765/"
+    assert "http://127.0.0.1:8765/" in captured.out
+    assert ("launch_player", "http://127.0.0.1:8765/") not in calls
+    assert calls[2][0] == "wait_forever"
+
+
+def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
+
+    calls: list[tuple[str, object]] = []
+
+    class DummyPayloads:
+        session_id = b"session"
+        packet_sequence = [b"packet-1", b"packet-2"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
+        return DummyPayloads()
+
+    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+        calls.append(("create_player_app", (payloads_arg, host, port, player_root)))
+        return DummyServer()
+
+    def fake_launch_player(url_arg):
+        calls.append(("launch_player", url_arg))
+        return True
+
+    def fake_wait_forever():
+        calls.append(("wait_forever", None))
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    result = handle_send(args)
+
+    assert result == 0
+    assert calls[0][0] == "build_session_payloads"
+    assert calls[1][0] == "create_player_app"
+    assert calls[2] == ("launch_player", "http://127.0.0.1:8765/")
     assert calls[3][0] == "wait_forever"
 
 
@@ -167,32 +227,28 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
         calls.append("create_player_app")
         return server
 
-    def fake_launch_player(url_arg):
-        calls.append("launch_player")
-
     def fake_wait_forever():
         calls.append("wait_forever")
 
     monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
-    monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
     result = handle_send(args)
 
     assert result == 0
-    assert calls == ["build_session_payloads", "create_player_app", "launch_player", "wait_forever"]
+    assert calls == ["build_session_payloads", "create_player_app", "wait_forever"]
     assert server.shutdown_called is True
     assert server.server_close_called is True
 
 
-def test_handle_send_prints_preview_url_when_browser_launch_fails(tmp_path, monkeypatch, capsys):
+def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
     class DummyPayloads:
         session_id = b"session"
@@ -232,13 +288,13 @@ def test_handle_send_prints_preview_url_when_browser_launch_fails(tmp_path, monk
     assert "http://127.0.0.1:8765/" in captured.out
 
 
-def test_handle_send_prints_preview_url_when_browser_launch_raises(tmp_path, monkeypatch, capsys):
+def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_raises(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
     calls: list[str] = []
 

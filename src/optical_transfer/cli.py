@@ -77,16 +77,19 @@ def wait_forever() -> None:
 def run_preview_session(
     server,
     *,
+    open_browser: bool = False,
     launch_fn=launch_player,
     wait_fn=wait_forever,
 ) -> None:
     preview_url = build_preview_url(server.server_address[0], server.server_address[1])
     try:
-        try:
-            launched = launch_fn(preview_url)
-        except Exception:
-            launched = False
-        if not launched:
+        launched = False
+        if open_browser:
+            try:
+                launched = launch_fn(preview_url)
+            except Exception:
+                launched = False
+        if not open_browser or not launched:
             print(f"Preview URL: {preview_url}")
         wait_fn()
     finally:
@@ -104,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     send_parser.add_argument("--player-host", default=DEFAULT_PLAYER_HOST)
     send_parser.add_argument("--player-port", type=int, default=DEFAULT_PLAYER_PORT)
+    send_parser.add_argument("--open-browser", action="store_true")
 
     receive_parser = subparsers.add_parser("receive")
     receive_parser.add_argument("videos", nargs="+")
@@ -121,7 +125,12 @@ def handle_send(args: argparse.Namespace) -> int:
         port=config.player_port,
         player_root=config.player_root,
     )
-    run_preview_session(server, launch_fn=launch_player, wait_fn=wait_forever)
+    run_preview_session(
+        server,
+        open_browser=args.open_browser,
+        launch_fn=launch_player,
+        wait_fn=wait_forever,
+    )
     return 0
 
 
