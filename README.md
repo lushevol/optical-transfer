@@ -2,6 +2,8 @@
 
 `optical-transfer` is a CLI for moving a directory through an optical QR video stream.
 
+Detailed usage is documented in [docs/optical-transfer-usage-manual.md](/Users/taissa/lushuai/code/personal/mproject/docs/optical-transfer-usage-manual.md).
+
 ## Setup
 
 The project is developed against Python 3.12.
