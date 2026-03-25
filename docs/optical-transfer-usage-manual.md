@@ -38,6 +38,28 @@ Verify `ffmpeg`:
 ffmpeg -version
 ```
 
+## Environment Initialization Scripts
+
+Two macOS setup scripts are provided so sender and receiver can be initialized separately:
+
+```bash
+./scripts/setup-sender-macos.sh
+./scripts/setup-receiver-macos.sh
+```
+
+Behavior:
+
+- `setup-sender-macos.sh`
+  Creates `.venv-sender`, installs the project, and prepares a sender-only environment.
+- `setup-receiver-macos.sh`
+  Creates `.venv-receiver`, installs the project, and checks that `ffmpeg` is available.
+
+Both scripts:
+
+- use `python3` by default
+- can be pointed at another interpreter with `PYTHON_BIN=/path/to/python`
+- do not modify your shell profile
+
 ## Quick Start
 
 Send:
