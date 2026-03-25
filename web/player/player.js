@@ -1,32 +1,32 @@
-function renderFrame(packetSequence, index) {
+function renderFrame(frameSequence, index) {
   const status = document.getElementById("status");
-  const payload = document.getElementById("payload");
-  const packet = packetSequence[index];
+  const frame = document.getElementById("frame");
+  const image = frameSequence[index];
 
-  status.textContent = `Frame ${index + 1} of ${packetSequence.length}`;
-  payload.textContent = packet;
+  status.textContent = `Frame ${index + 1} of ${frameSequence.length}`;
+  frame.src = image;
 }
 
 function startPlayback(data) {
-  const packetSequence = data.packet_sequence || [];
-  if (packetSequence.length === 0) {
+  const frameSequence = data.frame_sequence || [];
+  if (frameSequence.length === 0) {
     document.getElementById("status").textContent = "No packets available.";
-    document.getElementById("payload").textContent = "";
+    document.getElementById("frame").removeAttribute("src");
     return;
   }
 
   let index = 0;
-  renderFrame(packetSequence, index);
+  renderFrame(frameSequence, index);
 
   window.setInterval(() => {
-    index = (index + 1) % packetSequence.length;
-    renderFrame(packetSequence, index);
+    index = (index + 1) % frameSequence.length;
+    renderFrame(frameSequence, index);
   }, 600);
 }
 
 async function loadPayload() {
   const status = document.getElementById("status");
-  const payload = document.getElementById("payload");
+  const frame = document.getElementById("frame");
 
   try {
     const response = await fetch("/payload.json", { cache: "no-store" });
@@ -36,11 +36,11 @@ async function loadPayload() {
 
     const data = await response.json();
     status.textContent = `Session ${data.session_id} ready.`;
-    payload.textContent = "Loading frame 1...";
+    frame.removeAttribute("src");
     startPlayback(data);
   } catch (error) {
     status.textContent = `Unable to load packet feed: ${error.message}`;
-    payload.textContent = "";
+    frame.removeAttribute("src");
   }
 }
 

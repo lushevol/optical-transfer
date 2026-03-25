@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT, DEFAULT_PLAYER_ROOT
+from optical_transfer.sender.qr_payloads import encode_payload_data_url, required_canvas_size
 from optical_transfer.sender.session import SessionPayloadSet
 
 
@@ -26,42 +27,44 @@ FALLBACK_PLAYER_ASSETS = {
         <p class=\"eyebrow\">Optical Transfer</p>
         <h1>Sender preview</h1>
         <p id=\"status\">Loading packet feed...</p>
-        <pre id=\"payload\" aria-label=\"packet payload feed\"></pre>
+        <div class=\"frame-shell\">
+          <img id=\"frame\" alt=\"Current QR frame\" />
+        </div>
       </section>
     </main>
     <script src=\"/player.js\" defer></script>
   </body>
 </html>
 """,
-    "player.js": """function renderFrame(packetSequence, index) {
+    "player.js": """function renderFrame(frameSequence, index) {
   const status = document.getElementById(\"status\");
-  const payload = document.getElementById(\"payload\");
-  const packet = packetSequence[index];
+  const frame = document.getElementById(\"frame\");
+  const image = frameSequence[index];
 
-  status.textContent = `Frame ${index + 1} of ${packetSequence.length}`;
-  payload.textContent = packet;
+  status.textContent = `Frame ${index + 1} of ${frameSequence.length}`;
+  frame.src = image;
 }
 
 function startPlayback(data) {
-  const packetSequence = data.packet_sequence || [];
-  if (packetSequence.length === 0) {
+  const frameSequence = data.frame_sequence || [];
+  if (frameSequence.length === 0) {
     document.getElementById(\"status\").textContent = \"No packets available.\";
-    document.getElementById(\"payload\").textContent = \"\";
+    document.getElementById(\"frame\").removeAttribute(\"src\");
     return;
   }
 
   let index = 0;
-  renderFrame(packetSequence, index);
+  renderFrame(frameSequence, index);
 
   window.setInterval(() => {
-    index = (index + 1) % packetSequence.length;
-    renderFrame(packetSequence, index);
+    index = (index + 1) % frameSequence.length;
+    renderFrame(frameSequence, index);
   }, 600);
 }
 
 async function loadPayload() {
   const status = document.getElementById(\"status\");
-  const payload = document.getElementById(\"payload\");
+  const frame = document.getElementById(\"frame\");
 
   try {
     const response = await fetch(\"/payload.json\", { cache: \"no-store\" });
@@ -71,11 +74,11 @@ async function loadPayload() {
 
     const data = await response.json();
     status.textContent = `Session ${data.session_id} ready.`;
-    payload.textContent = \"Loading frame 1...\";
+    frame.removeAttribute(\"src\");
     startPlayback(data);
   } catch (error) {
     status.textContent = `Unable to load packet feed: ${error.message}`;
-    payload.textContent = \"\";
+    frame.removeAttribute(\"src\");
   }
 }
 
@@ -136,13 +139,19 @@ h1 {
   color: rgba(244, 247, 251, 0.8);
 }
 
-#payload {
-  margin: 0;
-  padding: 1rem;
+.frame-shell {
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.06);
-  overflow: auto;
-  min-height: 12rem;
+}
+
+#frame {
+  width: min(70vmin, 32rem);
+  image-rendering: pixelated;
+  background: white;
+  border-radius: 12px;
 }
 """,
 }
@@ -207,11 +216,16 @@ class _PlayerHTTPServer(ThreadingHTTPServer):
 
 
 def build_player_payload(payloads: SessionPayloadSet) -> dict[str, object]:
+    canvas_size = required_canvas_size(payloads.packet_sequence)
     return {
         "session_id": payloads.session_id.hex(),
         "chunk_size": payloads.chunk_size,
         "total_chunks": payloads.total_chunks,
         "packet_sequence": [packet.hex() for packet in payloads.packet_sequence],
+        "frame_size": canvas_size,
+        "frame_sequence": [
+            encode_payload_data_url(packet, canvas_size=canvas_size) for packet in payloads.packet_sequence
+        ],
     }
 
 

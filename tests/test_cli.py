@@ -485,7 +485,9 @@ def test_player_server_exposes_packet_sequence_json(tmp_path):
 
     assert payload["session_id"]
     assert payload["packet_sequence"]
+    assert payload["frame_sequence"]
     assert len(payload["packet_sequence"]) == len(payloads.packet_sequence)
+    assert len(payload["frame_sequence"]) == len(payloads.packet_sequence)
 
 
 def test_main_requires_a_subcommand():

@@ -53,11 +53,17 @@ h1 {
   color: rgba(244, 247, 251, 0.8);
 }
 
-#payload {
-  margin: 0;
-  padding: 1rem;
+.frame-shell {
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.06);
-  overflow: auto;
-  min-height: 12rem;
+}
+
+#frame {
+  width: min(70vmin, 32rem);
+  image-rendering: pixelated;
+  background: white;
+  border-radius: 12px;
 }

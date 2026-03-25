@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import base64
+import io
 import math
 from typing import Iterable, Sequence
 
 from PIL import Image
 
 
-def encode_payload_image(payload: bytes) -> Image.Image:
+def encode_payload_image(payload: bytes, *, canvas_size: int | None = None) -> Image.Image:
     data = len(payload).to_bytes(4, "big") + payload
     bits = _bytes_to_bits(data)
-    side = max(1, math.ceil(math.sqrt(len(bits))))
+    minimum_side = max(1, math.ceil(math.sqrt(len(bits))))
+    if canvas_size is None:
+        side = minimum_side
+    else:
+        if canvas_size < minimum_side:
+            raise ValueError("canvas_size is too small for payload")
+        side = canvas_size
     pixel_count = side * side
     padded_bits = bits + [0] * (pixel_count - len(bits))
 
@@ -35,8 +43,25 @@ def decode_payload_image(image: Image.Image) -> bytes:
     return _bits_to_bytes(payload_bits)
 
 
-def encode_payload_images(payloads: Sequence[bytes]) -> list[Image.Image]:
-    return [encode_payload_image(payload) for payload in payloads]
+def encode_payload_images(payloads: Sequence[bytes], *, canvas_size: int | None = None) -> list[Image.Image]:
+    return [encode_payload_image(payload, canvas_size=canvas_size) for payload in payloads]
+
+
+def encode_payload_data_url(payload: bytes, *, canvas_size: int | None = None) -> str:
+    image = encode_payload_image(payload, canvas_size=canvas_size)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def required_canvas_size(payloads: Sequence[bytes]) -> int:
+    if not payloads:
+        return 1
+    size = max(max(1, math.ceil(math.sqrt((len(payload) + 4) * 8))) for payload in payloads)
+    if size % 2 == 1:
+        size += 1
+    return size
 
 
 def decode_payload_images(images: Iterable[Image.Image]) -> list[bytes]:

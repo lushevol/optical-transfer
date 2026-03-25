@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import io
+import os
 import tarfile
 from dataclasses import replace
 from pathlib import Path
@@ -9,6 +11,7 @@ import pytest
 import numpy as np
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from PIL import Image
 from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
 from optical_transfer.protocol.header import decode_header
 import optical_transfer.cli as cli_module
@@ -17,9 +20,39 @@ from optical_transfer.receiver.preprocess import preprocess_frame
 from optical_transfer.receiver import qr_decode as qr_decode_module
 from optical_transfer.receiver.qr_decode import decode_qr_payload
 from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
+from optical_transfer.sender.player_server import build_player_payload
 from optical_transfer.sender.qr_payloads import decode_payload_image, encode_payload_image
 from optical_transfer.sender.session import build_session_payloads
 from optical_transfer.sender.manifest import manifest_from_json_bytes
+
+
+def test_player_payload_exposes_fixed_size_frame_sequence(tmp_path: Path) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
+    (source_dir / "blob.bin").write_bytes(os.urandom(32768))
+
+    session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=1536)
+    payload = build_player_payload(session)
+
+    frame_sequence = payload["frame_sequence"]
+
+    assert len(frame_sequence) == len(session.packet_sequence)
+
+    decoded_packets = []
+    frame_sizes = set()
+    for frame_data_url in frame_sequence:
+        prefix, encoded = frame_data_url.split(",", 1)
+        assert prefix.startswith("data:image/png;base64")
+        image = Image.open(io.BytesIO(base64.b64decode(encoded)))
+        frame_sizes.add(image.size)
+        decoded_packets.append(decode_payload_image(image))
+
+    assert len(frame_sizes) == 1
+    frame_size = next(iter(frame_sizes))
+    assert frame_size[0] % 2 == 0
+    assert frame_size[1] % 2 == 0
+    assert decoded_packets == session.packet_sequence
 
 
 def test_receive_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
