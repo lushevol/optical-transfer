@@ -23,8 +23,8 @@ def extract_frames(
         ffmpeg_bin,
         "-i",
         str(video_path),
-        "-vsync",
-        "0",
+        "-fps_mode",
+        "passthrough",
         str(output_pattern),
     ]
     runner(command, check=True)

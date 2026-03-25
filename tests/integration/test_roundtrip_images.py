@@ -179,7 +179,8 @@ def test_extract_frames_builds_ffmpeg_command_and_collects_frames(tmp_path: Path
     frame_paths = extract_frames(video_path, output_dir=output_dir, runner=fake_run)
 
     assert seen_command[:3] == ["ffmpeg", "-i", str(video_path)]
-    assert "-vsync" in seen_command
+    assert "-fps_mode" in seen_command
+    assert "passthrough" in seen_command
     assert frame_paths == [output_dir / "frame_000001.png", output_dir / "frame_000002.png"]
 
 
