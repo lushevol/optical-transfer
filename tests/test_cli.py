@@ -7,7 +7,7 @@ import optical_transfer.cli as cli_module
 import pytest
 
 from optical_transfer.cli import build_parser, build_preview_url, build_sender_config, handle_send, main
-from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
+from optical_transfer.config import DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
 from optical_transfer.receiver.report import SessionStats, build_session_report
 from optical_transfer.sender.player_server import create_player_app
 from optical_transfer.sender.session import build_session_payloads
@@ -41,6 +41,7 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.password == "secret"
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
+    assert config.frame_interval_ms == DEFAULT_FRAME_INTERVAL_MS
     assert config.chunk_size == 1536
 
 
@@ -49,6 +50,13 @@ def test_send_command_does_not_open_browser_by_default():
     args = parser.parse_args(["send"])
 
     assert args.open_browser is False
+
+
+def test_send_command_accepts_frame_interval_override():
+    parser = build_parser()
+    args = parser.parse_args(["send", "--frame-interval-ms", "450"])
+
+    assert args.frame_interval_ms == 450
 
 
 def test_send_command_rejects_ipv6_player_hosts(tmp_path):
@@ -112,8 +120,8 @@ def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_p
         calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
         return DummyPayloads()
 
-    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
-        calls.append(("create_player_app", (payloads_arg, host, port, player_root)))
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
+        calls.append(("create_player_app", (payloads_arg, frame_interval_ms, host, port, player_root)))
         return DummyServer()
 
     def fake_launch_player(url_arg):
@@ -165,8 +173,8 @@ def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
         calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
         return DummyPayloads()
 
-    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
-        calls.append(("create_player_app", (payloads_arg, host, port, player_root)))
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
+        calls.append(("create_player_app", (payloads_arg, frame_interval_ms, host, port, player_root)))
         return DummyServer()
 
     def fake_launch_player(url_arg):
@@ -188,6 +196,53 @@ def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
     assert calls[1][0] == "create_player_app"
     assert calls[2] == ("launch_player", "http://127.0.0.1:8765/")
     assert calls[3][0] == "wait_forever"
+
+
+def test_handle_send_passes_frame_interval_to_player_server(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(
+        ["send", "--source", str(source_dir), "--password", "secret", "--frame-interval-ms", "450"]
+    )
+
+    calls: list[tuple[str, object]] = []
+
+    class DummyPayloads:
+        session_id = b"session"
+        packet_sequence = [b"packet-1", b"packet-2"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
+        return DummyPayloads()
+
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
+        calls.append(("create_player_app", (payloads_arg, frame_interval_ms, host, port, player_root)))
+        return DummyServer()
+
+    def fake_wait_forever():
+        calls.append(("wait_forever", None))
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    result = handle_send(args)
+
+    assert result == 0
+    assert calls[1][0] == "create_player_app"
+    assert calls[1][1][1] == 450
 
 
 def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
@@ -223,7 +278,7 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
         calls.append("build_session_payloads")
         return DummyPayloads()
 
-    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
         calls.append("create_player_app")
         return server
 
@@ -266,7 +321,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_f
     def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
         return DummyPayloads()
 
-    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
         return DummyServer()
 
     def fake_launch_player(url_arg):
@@ -321,7 +376,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_r
         calls.append("build_session_payloads")
         return DummyPayloads()
 
-    def fake_create_player_app(payloads_arg, *, host, port, player_root=None):
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
         calls.append("create_player_app")
         return server
 
@@ -484,6 +539,7 @@ def test_player_server_exposes_packet_sequence_json(tmp_path):
         server.server_close()
 
     assert payload["session_id"]
+    assert payload["frame_interval_ms"] == DEFAULT_FRAME_INTERVAL_MS
     assert payload["packet_sequence"]
     assert payload["frame_sequence"]
     assert len(payload["packet_sequence"]) == len(payloads.packet_sequence)

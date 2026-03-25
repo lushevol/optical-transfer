@@ -59,7 +59,7 @@ function startPlayback(data) {
   window.setInterval(() => {
     index = (index + 1) % frameSequence.length;
     renderFrame(frameSequence, index);
-  }, 600);
+  }, data.frame_interval_ms || 600);
 }
 
 async function loadPayload() {
@@ -166,7 +166,9 @@ class _PlayerRequestHandler(BaseHTTPRequestHandler):
             self._serve_file(self.server.player_root / "index.html")
             return
         if path == "/payload.json":
-            self._serve_json(build_player_payload(self.server.payloads))
+            self._serve_json(
+                build_player_payload(self.server.payloads, frame_interval_ms=self.server.frame_interval_ms)
+            )
             return
         if path in {"/player.js", "/player.css"}:
             self._serve_file(self.server.player_root / path.lstrip("/"))
@@ -213,13 +215,15 @@ class _PlayerRequestHandler(BaseHTTPRequestHandler):
 class _PlayerHTTPServer(ThreadingHTTPServer):
     payloads: SessionPayloadSet
     player_root: Path
+    frame_interval_ms: int
 
 
-def build_player_payload(payloads: SessionPayloadSet) -> dict[str, object]:
+def build_player_payload(payloads: SessionPayloadSet, *, frame_interval_ms: int = 600) -> dict[str, object]:
     canvas_size = required_canvas_size(payloads.packet_sequence)
     return {
         "session_id": payloads.session_id.hex(),
         "chunk_size": payloads.chunk_size,
+        "frame_interval_ms": frame_interval_ms,
         "total_chunks": payloads.total_chunks,
         "packet_sequence": [packet.hex() for packet in payloads.packet_sequence],
         "frame_size": canvas_size,
@@ -232,6 +236,7 @@ def build_player_payload(payloads: SessionPayloadSet) -> dict[str, object]:
 def create_player_app(
     payloads: SessionPayloadSet,
     *,
+    frame_interval_ms: int = 600,
     host: str = DEFAULT_PLAYER_HOST,
     port: int = DEFAULT_PLAYER_PORT,
     player_root: Path | None = None,
@@ -239,6 +244,7 @@ def create_player_app(
     server = _PlayerHTTPServer((host, port), _PlayerRequestHandler)
     server.payloads = payloads
     server.player_root = Path(player_root or DEFAULT_PLAYER_ROOT)
+    server.frame_interval_ms = frame_interval_ms
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

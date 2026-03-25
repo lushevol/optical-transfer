@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from optical_transfer.config import (
     DEFAULT_CHUNK_SIZE,
+    DEFAULT_FRAME_INTERVAL_MS,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_PORT,
     SenderConfig,
@@ -39,6 +40,7 @@ def build_sender_config(args: argparse.Namespace) -> SenderConfig:
         source_dir=Path(args.source),
         password=args.password,
         chunk_size=args.chunk_size,
+        frame_interval_ms=args.frame_interval_ms,
         player_host=player_host,
         player_port=args.player_port,
     )
@@ -105,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--source", default=".")
     send_parser.add_argument("--password", default="")
     send_parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
+    send_parser.add_argument("--frame-interval-ms", type=int, default=DEFAULT_FRAME_INTERVAL_MS)
     send_parser.add_argument("--player-host", default=DEFAULT_PLAYER_HOST)
     send_parser.add_argument("--player-port", type=int, default=DEFAULT_PLAYER_PORT)
     send_parser.add_argument("--open-browser", action="store_true")
@@ -121,6 +124,7 @@ def handle_send(args: argparse.Namespace) -> int:
     payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
     server = create_player_app(
         payloads,
+        frame_interval_ms=config.frame_interval_ms,
         host=config.player_host,
         port=config.player_port,
         player_root=config.player_root,
