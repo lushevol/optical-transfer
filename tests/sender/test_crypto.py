@@ -61,14 +61,14 @@ def test_encrypt_chunk_reuses_session_key_within_explicit_session(monkeypatch) -
     import optical_transfer.sender.crypto as crypto
 
     calls = 0
-    original_scrypt = crypto.hashlib.scrypt
+    original_derive_key = crypto._derive_key
 
-    def counting_scrypt(*args, **kwargs):
+    def counting_derive_key(*args, **kwargs):
         nonlocal calls
         calls += 1
-        return original_scrypt(*args, **kwargs)
+        return original_derive_key(*args, **kwargs)
 
-    monkeypatch.setattr(crypto.hashlib, "scrypt", counting_scrypt)
+    monkeypatch.setattr(crypto, "_derive_key", counting_derive_key)
 
     session = ChunkCryptoSession(
         password="correct horse battery staple",
@@ -104,14 +104,14 @@ def test_chunk_crypto_session_clear_forces_rederivation(monkeypatch) -> None:
     import optical_transfer.sender.crypto as crypto
 
     calls = 0
-    original_scrypt = crypto.hashlib.scrypt
+    original_derive_key = crypto._derive_key
 
-    def counting_scrypt(*args, **kwargs):
+    def counting_derive_key(*args, **kwargs):
         nonlocal calls
         calls += 1
-        return original_scrypt(*args, **kwargs)
+        return original_derive_key(*args, **kwargs)
 
-    monkeypatch.setattr(crypto.hashlib, "scrypt", counting_scrypt)
+    monkeypatch.setattr(crypto, "_derive_key", counting_derive_key)
 
     session = ChunkCryptoSession(
         password="correct horse battery staple",

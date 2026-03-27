@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import hashlib
 import secrets
 from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from optical_transfer.sender.chunker import Chunk
 
@@ -77,14 +77,13 @@ def decrypt_chunk(
 
 
 def _derive_key(password: str, salt: bytes) -> bytes:
-    return hashlib.scrypt(
-        password.encode("utf-8"),
+    return Scrypt(
         salt=salt,
+        length=_KEY_LENGTH,
         n=_SCRYPT_N,
         r=_SCRYPT_R,
         p=_SCRYPT_P,
-        dklen=_KEY_LENGTH,
-    )
+    ).derive(password.encode("utf-8"))
 
 
 def _associated_data(session_id: bytes, chunk_index: int) -> bytes:
