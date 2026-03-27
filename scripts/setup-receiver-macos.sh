@@ -14,11 +14,18 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! "${PYTHON_BIN}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+  echo "error: ${PYTHON_BIN} must be Python 3.9 or newer (project requires >=3.9)" >&2
+  echo "hint: set PYTHON_BIN to a newer interpreter, for example:" >&2
+  echo '  PYTHON_BIN=python3.9 ./scripts/setup-receiver-macos.sh' >&2
+  exit 1
+fi
+
 "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 source "${VENV_DIR}/bin/activate"
 
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -e .
+python -m pip install -e '.[receiver]'
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   cat <<EOF
@@ -41,4 +48,7 @@ Verify ffmpeg:
 
 Run receiver with:
   optical-transfer receive recording.mp4 --password "secret" --output-root restored
+
+Notes:
+  - the receiver now depends on the packaged OpenCV QR decoder runtime
 EOF

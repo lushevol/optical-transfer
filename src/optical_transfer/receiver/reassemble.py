@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Dict, List
+
 from optical_transfer.receiver.collector import VerifiedChunk
 
 
-def reassemble_archive(chunks: list[VerifiedChunk], expected_total: int) -> bytes:
+def reassemble_archive(chunks: List[VerifiedChunk], expected_total: int) -> bytes:
     if expected_total <= 0:
         raise ValueError("expected_total must be positive")
     if not chunks:
@@ -17,7 +19,7 @@ def reassemble_archive(chunks: list[VerifiedChunk], expected_total: int) -> byte
     if total_chunks != {expected_total}:
         raise ValueError("chunks do not describe the expected logical chunk set")
 
-    by_index: dict[int, VerifiedChunk] = {}
+    by_index: Dict[int, VerifiedChunk] = {}
     for chunk in chunks:
         existing = by_index.get(chunk.chunk_index)
         if existing is not None and existing != chunk:

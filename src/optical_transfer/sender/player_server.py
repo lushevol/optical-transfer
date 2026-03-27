@@ -5,6 +5,7 @@ import mimetypes
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from optical_transfer.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT, DEFAULT_PLAYER_ROOT
@@ -178,7 +179,7 @@ class _PlayerRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003 - stdlib signature
         return
 
-    def _serve_json(self, payload: dict[str, object]) -> None:
+    def _serve_json(self, payload: Dict[str, object]) -> None:
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -202,7 +203,7 @@ class _PlayerRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_asset(self, path: Path) -> bytes | None:
+    def _read_asset(self, path: Path) -> Optional[bytes]:
         if path.is_file():
             return path.read_bytes()
 
@@ -218,7 +219,7 @@ class _PlayerHTTPServer(ThreadingHTTPServer):
     frame_interval_ms: int
 
 
-def build_player_payload(payloads: SessionPayloadSet, *, frame_interval_ms: int = 600) -> dict[str, object]:
+def build_player_payload(payloads: SessionPayloadSet, *, frame_interval_ms: int = 600) -> Dict[str, object]:
     canvas_size = required_canvas_size(payloads.packet_sequence)
     return {
         "session_id": payloads.session_id.hex(),
@@ -239,7 +240,7 @@ def create_player_app(
     frame_interval_ms: int = 600,
     host: str = DEFAULT_PLAYER_HOST,
     port: int = DEFAULT_PLAYER_PORT,
-    player_root: Path | None = None,
+    player_root: Optional[Path] = None,
 ) -> _PlayerHTTPServer:
     server = _PlayerHTTPServer((host, port), _PlayerRequestHandler)
     server.payloads = payloads

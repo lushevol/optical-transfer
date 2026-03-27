@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SessionStats:
     input_video_count: int
     total_extracted_frame_count: int
@@ -15,7 +16,7 @@ class SessionStats:
     authentication_failure_count: int
     final_archive_hash_result: str
     stage_timings: dict[str, float] = field(default_factory=dict)
-    restored_directory: Path | None = None
+    restored_directory: Optional[Path] = None
 
 
 def build_session_report(stats: SessionStats) -> str:

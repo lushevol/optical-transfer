@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Dict, Optional
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Manifest:
     object_type: str
     archive_format: str
@@ -12,5 +13,5 @@ class Manifest:
     chunk_size: int
     total_chunks: int
     aead_algorithm_id: str
-    fec_parameters: dict[str, int | None] | None = None
-    original_directory_name: str | None = None
+    fec_parameters: Optional[Dict[str, Optional[int]]] = None
+    original_directory_name: Optional[str] = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 PacketType = int
 CapabilityFlags = int
@@ -13,7 +14,7 @@ SessionId = bytes
 KdfSalt = bytes
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PacketHeaderFields:
     protocol_version: ProtocolVersion
     capability_flags: CapabilityFlags
@@ -24,4 +25,4 @@ class PacketHeaderFields:
     payload_length: PayloadLength
     kdf_id: KdfId
     kdf_salt: KdfSalt
-    header_crc: int | None = None
+    header_crc: Optional[int] = None

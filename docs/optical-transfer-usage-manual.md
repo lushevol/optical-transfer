@@ -18,7 +18,7 @@ The current implementation is designed for:
 
 Required:
 
-- Python 3.12+
+- Python 3.9+
 - project Python dependencies installed in the active environment
 - `ffmpeg` available in `PATH` for receiver frame extraction
 
@@ -88,7 +88,7 @@ Useful options:
 
 - `--source`: source directory to transmit. Default: current directory.
 - `--password`: shared password used by sender and receiver.
-- `--chunk-size`: packet payload size before encryption. Default: `1536`.
+- `--chunk-size`: packet payload size before encryption. Default: `64`.
 - `--frame-interval-ms`: time each QR frame remains on screen. Default: `600`.
 - `--player-host`: bind address for the local preview server. Default: `127.0.0.1`.
 - `--player-port`: bind port for the local preview server. Default: `8765`.
@@ -183,7 +183,7 @@ Interpretation:
 
 These defaults are intentionally conservative:
 
-- `chunk_size = 1536`
+- `chunk_size = 64`
 - `frame_interval_ms = 600`
 
 The current sender preview renders:

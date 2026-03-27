@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import secrets
+from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -16,7 +17,7 @@ _SCRYPT_R = 8
 _SCRYPT_P = 1
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class EncryptedChunk:
     chunk_index: int
     nonce: bytes
@@ -37,11 +38,11 @@ class EncryptedChunk:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ChunkCryptoSession:
     password: str
     salt: bytes
-    _key: bytes | None = field(default=None, init=False, repr=False, compare=False, hash=False)
+    _key: Optional[bytes] = field(default=None, init=False, repr=False, compare=False, hash=False)
 
     def key(self) -> bytes:
         if self._key is None:

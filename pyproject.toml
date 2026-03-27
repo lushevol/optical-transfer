@@ -6,7 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "optical-transfer"
 version = "0.1.0"
 description = "CLI optical transfer tool"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography",
+    "numpy",
+    "Pillow",
+    "qrcode[pil]",
+]
+
+[project.optional-dependencies]
+receiver = [
+    "opencv-python",
+]
 
 [project.scripts]
 optical-transfer = "optical_transfer.cli:main"

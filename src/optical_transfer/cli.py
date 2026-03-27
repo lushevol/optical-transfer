@@ -9,6 +9,7 @@ import ipaddress
 from pathlib import Path
 from time import perf_counter
 from threading import Event
+from typing import Dict, List, Optional
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -20,18 +21,19 @@ from optical_transfer.config import (
     DEFAULT_PLAYER_PORT,
     SenderConfig,
 )
-from optical_transfer.receiver.collector import PacketCollector, VerifiedChunk
-from optical_transfer.receiver.ffmpeg_frames import extract_frames
-from optical_transfer.receiver.preprocess import preprocess_frame
-from optical_transfer.receiver.qr_decode import decode_qr_payload
-from optical_transfer.receiver.reassemble import reassemble_archive
-from optical_transfer.receiver.report import SessionStats, build_session_report
-from optical_transfer.receiver.restore import restore_archive_bytes
 from optical_transfer.sender.crypto import ChunkCryptoSession
 from optical_transfer.sender.manifest import manifest_from_json_bytes
 from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, split_data_packet
 from optical_transfer.sender.player_server import create_player_app
 from optical_transfer.sender.session import build_session_payloads
+from optical_transfer.receiver.restore import restore_archive_bytes as _default_restore_archive_bytes
+
+extract_frames = None
+preprocess_frame = None
+decode_qr_payload = None
+reassemble_archive = None
+build_session_report = None
+restore_archive_bytes = _default_restore_archive_bytes
 
 
 def build_sender_config(args: argparse.Namespace) -> SenderConfig:
@@ -139,11 +141,38 @@ def handle_send(args: argparse.Namespace) -> int:
 
 
 def handle_receive(args: argparse.Namespace) -> int:
+    from optical_transfer.receiver.collector import PacketCollector, VerifiedChunk
+    from optical_transfer.receiver.report import SessionStats
+
+    extract_frames_fn = extract_frames
+    if extract_frames_fn is None:
+        from optical_transfer.receiver.ffmpeg_frames import extract_frames as extract_frames_fn
+
+    preprocess_frame_fn = preprocess_frame
+    if preprocess_frame_fn is None:
+        from optical_transfer.receiver.preprocess import preprocess_frame as preprocess_frame_fn
+
+    decode_qr_payload_fn = decode_qr_payload
+    if decode_qr_payload_fn is None:
+        from optical_transfer.receiver.qr_decode import decode_qr_payload as decode_qr_payload_fn
+
+    reassemble_archive_fn = reassemble_archive
+    if reassemble_archive_fn is None:
+        from optical_transfer.receiver.reassemble import reassemble_archive as reassemble_archive_fn
+
+    build_session_report_fn = build_session_report
+    if build_session_report_fn is None:
+        from optical_transfer.receiver.report import build_session_report as build_session_report_fn
+
+    restore_archive_bytes_fn = restore_archive_bytes
+    if restore_archive_bytes_fn is None:
+        from optical_transfer.receiver.restore import restore_archive_bytes as restore_archive_bytes_fn
+
     video_paths = [Path(video) for video in args.videos]
     output_root = Path(args.output_root)
 
     collector = PacketCollector()
-    crypto_sessions: dict[bytes, ChunkCryptoSession] = {}
+    crypto_sessions: Dict[bytes, ChunkCryptoSession] = {}
     stats = {
         "input_video_count": len(video_paths),
         "total_extracted_frame_count": 0,
@@ -153,7 +182,7 @@ def handle_receive(args: argparse.Namespace) -> int:
         "missing_chunk_count": 0,
         "authentication_failure_count": 0,
     }
-    stage_timings: dict[str, float] = {
+    stage_timings: Dict[str, float] = {
         "extract_frames": 0.0,
         "preprocess_decode": 0.0,
         "reassemble": 0.0,
@@ -161,21 +190,21 @@ def handle_receive(args: argparse.Namespace) -> int:
     }
 
     manifest = None
-    session_id: bytes | None = None
-    expected_total_chunks: int | None = None
-    observed_kdf_salt: bytes | None = None
+    session_id: Optional[bytes] = None
+    expected_total_chunks: Optional[int] = None
+    observed_kdf_salt: Optional[bytes] = None
 
     for video_path in video_paths:
         extract_started = perf_counter()
         with tempfile.TemporaryDirectory(prefix=f"{video_path.stem}-frames-") as frame_dir:
-            frame_paths = extract_frames(video_path, output_dir=Path(frame_dir))
+            frame_paths = extract_frames_fn(video_path, output_dir=Path(frame_dir))
             stage_timings["extract_frames"] += perf_counter() - extract_started
             stats["total_extracted_frame_count"] += len(frame_paths)
 
             decode_started = perf_counter()
             for frame_path in frame_paths:
-                frame = preprocess_frame(frame_path)
-                packet_bytes = decode_qr_payload(frame)
+                frame = preprocess_frame_fn(frame_path)
+                packet_bytes = decode_qr_payload_fn(frame)
                 if packet_bytes is None:
                     continue
 
@@ -252,7 +281,7 @@ def handle_receive(args: argparse.Namespace) -> int:
         raise ValueError("receive inputs are missing required chunks")
 
     reassemble_started = perf_counter()
-    archive_bytes = reassemble_archive(chunks, expected_total_chunks)
+    archive_bytes = reassemble_archive_fn(chunks, expected_total_chunks)
     stage_timings["reassemble"] += perf_counter() - reassemble_started
 
     archive_hash = hashlib.sha256(archive_bytes).hexdigest()
@@ -260,7 +289,7 @@ def handle_receive(args: argparse.Namespace) -> int:
         raise ValueError("restored archive hash does not match manifest")
 
     restore_started = perf_counter()
-    restored_dir = restore_archive_bytes(archive_bytes, output_root)
+    restored_dir = restore_archive_bytes_fn(archive_bytes, output_root)
     stage_timings["restore"] += perf_counter() - restore_started
 
     session_stats = SessionStats(
@@ -275,7 +304,7 @@ def handle_receive(args: argparse.Namespace) -> int:
         stage_timings=stage_timings,
         restored_directory=restored_dir,
     )
-    print(build_session_report(session_stats))
+    print(build_session_report_fn(session_stats))
     return 0
 
 
@@ -284,7 +313,7 @@ def _decrypt_packet_payload(
     encrypted_blob: bytes,
     password: str,
     header,
-    crypto_sessions: dict[bytes, ChunkCryptoSession],
+    crypto_sessions: Dict[bytes, ChunkCryptoSession],
 ) -> bytes:
     if len(encrypted_blob) < 12 + 16:
         raise ValueError("encrypted payload is too short")
@@ -332,7 +361,7 @@ def _associated_data(
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "send":
         return handle_send(args)

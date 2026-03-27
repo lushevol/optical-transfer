@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class VerifiedChunk:
     session_id: bytes
     chunk_index: int
@@ -13,7 +14,7 @@ class VerifiedChunk:
 
 class PacketCollector:
     def __init__(self) -> None:
-        self._chunks: dict[tuple[bytes, int], VerifiedChunk] = {}
+        self._chunks: Dict[Tuple[bytes, int], VerifiedChunk] = {}
 
     def add_chunk(self, chunk: VerifiedChunk) -> bool:
         key = (chunk.session_id, chunk.chunk_index)
@@ -26,7 +27,7 @@ class PacketCollector:
         self._chunks[key] = chunk
         return True
 
-    def chunks(self, session_id: bytes | None = None) -> list[VerifiedChunk]:
+    def chunks(self, session_id: Optional[bytes] = None) -> List[VerifiedChunk]:
         collected = self._chunks.values()
         if session_id is not None:
             collected = (chunk for chunk in collected if chunk.session_id == session_id)

@@ -4,6 +4,7 @@ import tempfile
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -19,9 +20,10 @@ from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFE
 
 _AEAD_NONCE_SIZE = 12
 _KDF_ID = 1
+_MANIFEST_REPEAT_COUNT = 3
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SessionPayloadSet:
     session_id: bytes
     archive_result: ArchiveResult
@@ -32,18 +34,18 @@ class SessionPayloadSet:
     chunk_size: int
     total_chunks: int
     manifest_packet: bytes
-    data_packets: list[bytes]
+    data_packets: List[bytes]
 
     @property
-    def packet_payloads(self) -> list[bytes]:
-        return [self.manifest_packet, *self.data_packets]
+    def packet_payloads(self) -> List[bytes]:
+        return [self.manifest_packet] * _MANIFEST_REPEAT_COUNT + self.data_packets
 
     @property
-    def packet_sequence(self) -> list[bytes]:
+    def packet_sequence(self) -> List[bytes]:
         return self.packet_payloads
 
     @property
-    def packets(self) -> list[bytes]:
+    def packets(self) -> List[bytes]:
         return self.packet_payloads
 
 

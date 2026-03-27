@@ -6,14 +6,15 @@ import io
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ArchiveResult:
     archive_path: Path
     archive_byte_length: int
     archive_hash: str
-    original_directory_name: str | None = None
+    original_directory_name: Optional[str] = None
 
 
 def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
@@ -51,7 +52,7 @@ def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
                 tar_info.size = len(data)
                 tar.addfile(tar_info, io.BytesIO(data))
 
-    archive_bytes = gzip.compress(tar_buffer.getvalue(), mtime=0)
+    archive_bytes = gzip.compress(tar_buffer.getvalue(), compresslevel=9, mtime=0)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(archive_bytes)
 

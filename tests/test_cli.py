@@ -1,6 +1,7 @@
 import inspect
 import json
 from pathlib import Path
+from typing import List, Tuple
 import urllib.request
 
 import optical_transfer.cli as cli_module
@@ -42,7 +43,7 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
     assert config.frame_interval_ms == DEFAULT_FRAME_INTERVAL_MS
-    assert config.chunk_size == 1536
+    assert config.chunk_size == 64
 
 
 def test_send_command_does_not_open_browser_by_default():
@@ -95,7 +96,7 @@ def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_p
     parser = build_parser()
     args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
 
-    calls: list[tuple[str, object]] = []
+    calls: List[Tuple[str, object]] = []
 
     class DummyPayloads:
         def __init__(self) -> None:
@@ -154,7 +155,7 @@ def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
     parser = build_parser()
     args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
-    calls: list[tuple[str, object]] = []
+    calls: List[Tuple[str, object]] = []
 
     class DummyPayloads:
         session_id = b"session"
@@ -208,7 +209,7 @@ def test_handle_send_passes_frame_interval_to_player_server(tmp_path, monkeypatc
         ["send", "--source", str(source_dir), "--password", "secret", "--frame-interval-ms", "450"]
     )
 
-    calls: list[tuple[str, object]] = []
+    calls: List[Tuple[str, object]] = []
 
     class DummyPayloads:
         session_id = b"session"
@@ -253,7 +254,7 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     parser = build_parser()
     args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
 
-    calls: list[str] = []
+    calls: List[str] = []
 
     class DummyPayloads:
         session_id = b"session"
@@ -351,7 +352,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_r
     parser = build_parser()
     args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
-    calls: list[str] = []
+    calls: List[str] = []
 
     class DummyPayloads:
         session_id = b"session"
@@ -413,7 +414,7 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
     video_one = tmp_path / "recording1.mp4"
     video_two = tmp_path / "recording2.mp4"
     frame_paths = [tmp_path / f"frame-{index}.png" for index in range(len(session.packet_sequence))]
-    restored_dirs: list[Path] = []
+    restored_dirs: List[Path] = []
 
     real_restore_archive_bytes = cli_module.restore_archive_bytes
 
@@ -464,6 +465,48 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
     assert f"deduplicated valid chunk count: {session.total_chunks}" in captured.out
     assert "final archive hash result: match" in captured.out
     assert restored_dirs and restored_dirs[0].exists()
+    assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_handle_receive_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    packet_iter = iter(session.packet_sequence[1:])
+    frame_paths = [tmp_path / f"frame-{index}.png" for index in range(len(session.packet_sequence) - 1)]
+
+    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
+        return frame_paths
+
+    def fake_preprocess_frame(frame_path):
+        return frame_path
+
+    def fake_decode_qr_payload(image):
+        return next(packet_iter)
+
+    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+    monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
+    monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "receive",
+            str(tmp_path / "recording.mp4"),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    result = cli_module.handle_receive(args)
+
+    restored_dirs = list((tmp_path / "restored").iterdir())
+    assert result == 0
+    assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 

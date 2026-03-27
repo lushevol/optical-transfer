@@ -16,7 +16,7 @@ from optical_transfer.protocol.constants import (
 from optical_transfer.protocol.types import PacketHeaderFields
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PacketHeader(PacketHeaderFields):
     def __post_init__(self) -> None:
         if self.protocol_version != PROTOCOL_HEADER_VERSION:

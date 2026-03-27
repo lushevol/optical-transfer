@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Callable, List, Optional
 
 
 def extract_frames(
     video_path: Path,
     *,
-    output_dir: Path | None = None,
+    output_dir: Optional[Path] = None,
     runner: Callable[..., object] = subprocess.run,
     ffmpeg_bin: str = "ffmpeg",
-) -> list[Path]:
+) -> List[Path]:
     video_path = Path(video_path)
     output_dir = Path(output_dir) if output_dir is not None else video_path.with_name(f"{video_path.stem}_frames")
     output_dir.mkdir(parents=True, exist_ok=True)

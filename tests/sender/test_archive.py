@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tarfile
 
+import optical_transfer.sender.archive as archive_module
 from optical_transfer.sender.archive import archive_directory
 
 
@@ -31,3 +32,23 @@ def test_archive_directory_creates_tar_gz_with_relative_paths(tmp_path) -> None:
         empty_member = tar.getmember("nested/empty")
         assert empty_member.isdir()
         assert empty_member.mode & 0o777 == 0o755
+
+
+def test_archive_directory_uses_maximum_gzip_compression_level(tmp_path, monkeypatch) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
+
+    seen = {}
+    real_compress = archive_module.gzip.compress
+
+    def fake_compress(data, compresslevel=9, *, mtime=None):
+        seen["compresslevel"] = compresslevel
+        seen["mtime"] = mtime
+        return real_compress(data, compresslevel=compresslevel, mtime=mtime)
+
+    monkeypatch.setattr(archive_module.gzip, "compress", fake_compress)
+
+    archive_directory(source_dir, tmp_path / "payload.tar.gz")
+
+    assert seen == {"compresslevel": 9, "mtime": 0}
