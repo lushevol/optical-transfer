@@ -108,14 +108,14 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 2rem;
+  padding: 1rem;
 }
 
 .player-card {
-  width: min(48rem, 100%);
+  width: min(96vw, 90rem);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
-  padding: 2rem;
+  padding: 1.25rem;
   background: rgba(6, 10, 18, 0.72);
   backdrop-filter: blur(18px);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
@@ -149,7 +149,8 @@ h1 {
 }
 
 #frame {
-  width: min(70vmin, 32rem);
+  width: min(90vmin, 80rem);
+  max-width: 100%;
   image-rendering: pixelated;
   background: white;
   border-radius: 12px;

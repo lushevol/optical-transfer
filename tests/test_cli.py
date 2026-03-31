@@ -607,12 +607,16 @@ def test_player_server_serves_assets_without_repo_files(tmp_path):
             index_html = response.read().decode("utf-8")
         with urllib.request.urlopen(f"{base_url}/player.js") as response:
             player_js = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{base_url}/player.css") as response:
+            player_css = response.read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
 
     assert "AtlasX" in index_html
     assert "loadPayload" in player_js
+    assert "width: min(90vmin, 80rem);" in player_css
+    assert "32rem" not in player_css
 
 
 def test_player_server_exposes_packet_sequence_json(tmp_path):
