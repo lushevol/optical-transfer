@@ -1,8 +1,8 @@
 __pycache__/
 .pytest_cache/
 .venv/
-.venv-sender/
-.venv-receiver/
+.venv-outbound/
+.venv-inbound/
 dist/
 build/
 *.egg-info/

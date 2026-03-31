@@ -1,5 +1,5 @@
-from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
-from optical_transfer.protocol.header import PacketHeader, decode_header, encode_header
+from atlasx.protocol.constants import PROTOCOL_HEADER_SIZE
+from atlasx.protocol.header import PacketHeader, decode_header, encode_header
 
 
 def test_packet_header_roundtrip_preserves_wire_format() -> None:

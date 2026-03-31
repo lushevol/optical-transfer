@@ -2,29 +2,24 @@ from __future__ import annotations
 
 import base64
 import io
-import os
-import tarfile
 from dataclasses import replace
 from pathlib import Path
-from typing import List
 
 import pytest
 import numpy as np
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from PIL import Image
-from optical_transfer.protocol.constants import PROTOCOL_HEADER_SIZE
-from optical_transfer.protocol.header import decode_header
-import optical_transfer.cli as cli_module
-from optical_transfer.receiver.ffmpeg_frames import extract_frames
-from optical_transfer.receiver.preprocess import preprocess_frame
-from optical_transfer.receiver import qr_decode as qr_decode_module
-from optical_transfer.receiver.qr_decode import decode_qr_payload
-from optical_transfer.sender.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
-from optical_transfer.sender.player_server import build_player_payload
-from optical_transfer.sender.qr_payloads import decode_payload_image, encode_payload_image
-from optical_transfer.sender.session import build_session_payloads
-from optical_transfer.sender.manifest import manifest_from_json_bytes
+from atlasx.protocol.constants import PROTOCOL_HEADER_SIZE
+from atlasx.protocol.header import decode_header
+import atlasx.cli as cli_module
+from atlasx.inbound.preprocess import preprocess_frame
+from atlasx.inbound import qr_decode as qr_decode_module
+from atlasx.inbound.qr_decode import decode_qr_payload
+from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
+from atlasx.outbound.player_server import build_player_payload
+from atlasx.outbound.qr_payloads import decode_payload_image, encode_payload_image
+from atlasx.outbound.session import build_session_payloads
 
 
 def test_player_payload_exposes_fixed_size_frame_sequence(tmp_path: Path) -> None:
@@ -53,7 +48,7 @@ def test_player_payload_exposes_fixed_size_frame_sequence(tmp_path: Path) -> Non
     assert frame_size[1] % 2 == 0
 
 
-def test_receive_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_inbound_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
     source_dir = tmp_path / "payload"
     source_dir.mkdir()
     (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
@@ -71,22 +66,15 @@ def test_receive_command_restores_archive_from_synthetic_frames(tmp_path: Path, 
         video_two: rendered_frames[split_index:] or rendered_frames[-1:],
     }
 
-    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        copied_paths = []
-        for index, image in enumerate(video_frames[Path(video_path)]):
-            frame_path = output_dir / f"frame_{index:06d}.png"
-            image.save(frame_path)
-            copied_paths.append(frame_path)
-        return copied_paths
+    def fake_iter_video_frames(video_path):
+        yield from video_frames[Path(video_path)]
 
-    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
 
     parser = cli_module.build_parser()
     args = parser.parse_args(
         [
-            "receive",
+            "bar",
             str(video_one),
             str(video_two),
             "--password",
@@ -96,55 +84,22 @@ def test_receive_command_restores_archive_from_synthetic_frames(tmp_path: Path, 
         ]
     )
 
-    result = cli_module.handle_receive(args)
+    result = cli_module.handle_inbound(args)
     captured = capsys.readouterr()
 
     restored_root = tmp_path / "restored"
     restored_dirs = list(restored_root.iterdir())
 
     assert result == 0
+    assert "inbound: starting decode for 2 video(s)" in captured.out
+    assert "inbound: reading video 1/2:" in captured.out
+    assert "inbound: reassembling archive from" in captured.out
+    assert "inbound: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert "final archive hash result: match" in captured.out
     assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "root.txt").read_text(encoding="utf-8") == "root file\n"
     assert (restored_dirs[0] / "nested" / "child.txt").read_text(encoding="utf-8") == "nested file\n"
-
-
-def test_image_based_roundtrip_restores_archive_without_video(tmp_path: Path) -> None:
-    source_dir = tmp_path / "payload"
-    source_dir.mkdir()
-    (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
-    nested_dir = source_dir / "nested"
-    nested_dir.mkdir()
-    (nested_dir / "child.txt").write_text("nested file\n", encoding="utf-8")
-
-    session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
-
-    decrypted_chunks = []
-    for packet_bytes in session.packet_payloads:
-        header = decode_header(packet_bytes[:PROTOCOL_HEADER_SIZE])
-        encrypted_blob = packet_bytes[PROTOCOL_HEADER_SIZE:]
-        plaintext = _decrypt_packet(
-            encrypted_blob=encrypted_blob,
-            session=session,
-            header=header,
-        )
-        if header.packet_type == PACKET_TYPE_MANIFEST:
-            manifest = manifest_from_json_bytes(plaintext)
-            assert manifest.archive_hash == session.manifest.archive_hash
-        elif header.packet_type == PACKET_TYPE_DATA:
-            decrypted_chunks.append((header.chunk_index, plaintext))
-
-    archive_bytes = b"".join(chunk_data for _, chunk_data in sorted(decrypted_chunks, key=lambda item: item[0]))
-    assert archive_bytes == session.archive_bytes
-
-    restored_dir = tmp_path / "restored"
-    restored_dir.mkdir()
-    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
-        tar.extractall(restored_dir)
-
-    assert (restored_dir / "root.txt").read_text(encoding="utf-8") == "root file\n"
-    assert (restored_dir / "nested" / "child.txt").read_text(encoding="utf-8") == "nested file\n"
 
 
 def test_decode_payload_image_rejects_truncated_payload() -> None:
@@ -154,45 +109,6 @@ def test_decode_payload_image_rejects_truncated_payload() -> None:
 
     with pytest.raises(ValueError):
         decode_payload_image(image)
-
-
-def test_extract_frames_builds_ffmpeg_command_and_collects_frames(tmp_path: Path) -> None:
-    video_path = tmp_path / "session.mp4"
-    video_path.write_bytes(b"video")
-    output_dir = tmp_path / "frames"
-
-    seen_command: List[str] = []
-
-    def fake_run(command: List[str], **kwargs: object) -> object:
-        seen_command[:] = command
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "frame_000001.png").write_bytes(b"first")
-        (output_dir / "frame_000002.png").write_bytes(b"second")
-        return object()
-
-    frame_paths = extract_frames(video_path, output_dir=output_dir, runner=fake_run)
-
-    assert seen_command[:3] == ["ffmpeg", "-i", str(video_path)]
-    assert "-fps_mode" in seen_command
-    assert "passthrough" in seen_command
-    assert frame_paths == [output_dir / "frame_000001.png", output_dir / "frame_000002.png"]
-
-
-def test_extract_frames_ignores_stale_frames_in_reused_output_dir(tmp_path: Path) -> None:
-    video_path = tmp_path / "session.mp4"
-    video_path.write_bytes(b"video")
-    output_dir = tmp_path / "frames"
-    output_dir.mkdir()
-    (output_dir / "frame_000099.png").write_bytes(b"stale")
-
-    def fake_run(command: List[str], **kwargs: object) -> object:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "frame_000001.png").write_bytes(b"fresh")
-        return object()
-
-    frame_paths = extract_frames(video_path, output_dir=output_dir, runner=fake_run)
-
-    assert frame_paths == [output_dir / "frame_000001.png"]
 
 
 def test_preprocess_and_decode_frame_roundtrip(tmp_path: Path) -> None:
@@ -218,6 +134,21 @@ def test_real_qr_payload_survives_resize_and_decode() -> None:
 
 def test_decode_qr_payload_returns_none_for_blank_frame() -> None:
     blank_frame = np.zeros((4, 4), dtype=np.uint8)
+
+    assert decode_qr_payload(blank_frame) is None
+
+
+def test_decode_qr_payload_returns_none_when_opencv_throws_on_invalid_points(monkeypatch) -> None:
+    class FakeDetector:
+        def detectAndDecode(self, _image):
+            raise qr_decode_module.cv2.error(
+                "OpenCV(4.10.0) qrcode.cpp:2951: error: (-2:Unspecified error) "
+                "Invalid QR code source points"
+            )
+
+    monkeypatch.setattr(qr_decode_module.cv2, "QRCodeDetector", lambda: FakeDetector())
+
+    blank_frame = np.zeros((32, 32), dtype=np.uint8)
 
     assert decode_qr_payload(blank_frame) is None
 

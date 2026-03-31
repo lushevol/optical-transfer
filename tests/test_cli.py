@@ -4,39 +4,39 @@ from pathlib import Path
 from typing import List, Tuple
 import urllib.request
 
-import optical_transfer.cli as cli_module
+import atlasx.cli as cli_module
 import pytest
 
-from optical_transfer.cli import build_parser, build_preview_url, build_sender_config, handle_send, main
-from optical_transfer.config import DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
-from optical_transfer.receiver.report import SessionStats, build_session_report
-from optical_transfer.sender.player_server import create_player_app
-from optical_transfer.sender.session import build_session_payloads
+from atlasx.cli import build_parser, build_preview_url, build_outbound_config, handle_outbound, main
+from atlasx.config import DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
+from atlasx.inbound.report import SessionStats, build_session_report
+from atlasx.outbound.player_server import create_player_app
+from atlasx.outbound.session import build_session_payloads
 
 
-def test_parser_accepts_send_and_receive_subcommands():
+def test_parser_accepts_outbound_and_inbound_subcommands():
     parser = build_parser()
-    assert parser.parse_args(["send"]).command == "send"
-    assert parser.parse_args(["receive", "recording.mp4"]).command == "receive"
+    assert parser.parse_args(["foo"]).command == "foo"
+    assert parser.parse_args(["bar", "recording.mp4"]).command == "bar"
 
 
-def test_receive_command_accepts_multiple_videos():
+def test_inbound_command_accepts_multiple_videos():
     parser = build_parser()
-    args = parser.parse_args(["receive", "recording1.mp4", "recording2.mp4", "--password", "secret"])
+    args = parser.parse_args(["bar", "recording1.mp4", "recording2.mp4", "--password", "secret"])
 
     assert args.videos == ["recording1.mp4", "recording2.mp4"]
     assert args.password == "secret"
 
 
-def test_send_command_builds_default_sender_config(tmp_path):
+def test_outbound_command_builds_default_outbound_config(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret"])
 
-    config = build_sender_config(args)
+    config = build_outbound_config(args)
 
     assert config.source_dir == source_dir
     assert config.password == "secret"
@@ -46,28 +46,28 @@ def test_send_command_builds_default_sender_config(tmp_path):
     assert config.chunk_size == 64
 
 
-def test_send_command_does_not_open_browser_by_default():
+def test_outbound_command_does_not_open_browser_by_default():
     parser = build_parser()
-    args = parser.parse_args(["send"])
+    args = parser.parse_args(["foo"])
 
     assert args.open_browser is False
 
 
-def test_send_command_accepts_frame_interval_override():
+def test_outbound_command_accepts_frame_interval_override():
     parser = build_parser()
-    args = parser.parse_args(["send", "--frame-interval-ms", "450"])
+    args = parser.parse_args(["foo", "--frame-interval-ms", "450"])
 
     assert args.frame_interval_ms == 450
 
 
-def test_send_command_rejects_ipv6_player_hosts(tmp_path):
+def test_outbound_command_rejects_ipv6_player_hosts(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
 
     parser = build_parser()
     args = parser.parse_args(
         [
-            "send",
+            "foo",
             "--source",
             str(source_dir),
             "--password",
@@ -78,7 +78,7 @@ def test_send_command_rejects_ipv6_player_hosts(tmp_path):
     )
 
     with pytest.raises(ValueError):
-        build_sender_config(args)
+        build_outbound_config(args)
 
 
 def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
@@ -88,13 +88,13 @@ def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
     assert build_preview_url("example.com", 8765) == "http://example.com:8765/"
 
 
-def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_path, monkeypatch, capsys):
+def test_handle_outbound_prints_preview_url_without_opening_browser_by_default(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret"])
 
     calls: List[Tuple[str, object]] = []
 
@@ -136,7 +136,7 @@ def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_p
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
     captured = capsys.readouterr()
 
     assert result == 0
@@ -147,13 +147,13 @@ def test_handle_send_prints_preview_url_without_opening_browser_by_default(tmp_p
     assert calls[2][0] == "wait_forever"
 
 
-def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
+def test_handle_outbound_opens_browser_when_requested(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
     calls: List[Tuple[str, object]] = []
 
@@ -190,7 +190,7 @@ def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
 
     assert result == 0
     assert calls[0][0] == "build_session_payloads"
@@ -199,14 +199,14 @@ def test_handle_send_opens_browser_when_requested(tmp_path, monkeypatch):
     assert calls[3][0] == "wait_forever"
 
 
-def test_handle_send_passes_frame_interval_to_player_server(tmp_path, monkeypatch):
+def test_handle_outbound_passes_frame_interval_to_player_server(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
     args = parser.parse_args(
-        ["send", "--source", str(source_dir), "--password", "secret", "--frame-interval-ms", "450"]
+        ["foo", "--source", str(source_dir), "--password", "secret", "--frame-interval-ms", "450"]
     )
 
     calls: List[Tuple[str, object]] = []
@@ -239,20 +239,20 @@ def test_handle_send_passes_frame_interval_to_player_server(tmp_path, monkeypatc
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
 
     assert result == 0
     assert calls[1][0] == "create_player_app"
     assert calls[1][1][1] == 450
 
 
-def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
+def test_handle_outbound_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret"])
 
     calls: List[str] = []
 
@@ -290,7 +290,7 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
 
     assert result == 0
     assert calls == ["build_session_payloads", "create_player_app", "wait_forever"]
@@ -298,13 +298,13 @@ def test_handle_send_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     assert server.server_close_called is True
 
 
-def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
+def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
     class DummyPayloads:
         session_id = b"session"
@@ -336,7 +336,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_f
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
 
     captured = capsys.readouterr()
 
@@ -344,13 +344,13 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_f
     assert "http://127.0.0.1:8765/" in captured.out
 
 
-def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_raises(tmp_path, monkeypatch, capsys):
+def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_launch_raises(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args(["send", "--source", str(source_dir), "--password", "secret", "--open-browser"])
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret", "--open-browser"])
 
     calls: List[str] = []
 
@@ -393,7 +393,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_r
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_send(args)
+    result = handle_outbound(args)
 
     captured = capsys.readouterr()
 
@@ -404,7 +404,7 @@ def test_handle_send_prints_preview_url_when_open_browser_requested_but_launch_r
     assert server.server_close_called is True
 
 
-def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkeypatch, capsys):
+def test_handle_inbound_runs_pipeline_and_prints_session_report(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -413,16 +413,18 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
     packet_iter = iter(session.packet_sequence)
     video_one = tmp_path / "recording1.mp4"
     video_two = tmp_path / "recording2.mp4"
-    frame_paths = [tmp_path / f"frame-{index}.png" for index in range(len(session.packet_sequence))]
+    frame_tokens = [f"frame-{index}" for index in range(len(session.packet_sequence))]
     restored_dirs: List[Path] = []
 
     real_restore_archive_bytes = cli_module.restore_archive_bytes
 
-    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
+    def fake_iter_video_frames(video_path):
         if Path(video_path) == video_one:
-            return frame_paths[:1]
+            yield frame_tokens[0]
+            return
         if Path(video_path) == video_two:
-            return frame_paths[1:]
+            yield from frame_tokens[1:]
+            return
         raise AssertionError(f"unexpected video path: {video_path}")
 
     def fake_preprocess_frame(frame_path):
@@ -436,7 +438,7 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
         restored_dirs.append(restored_dir)
         return restored_dir
 
-    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
     monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
     monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
     monkeypatch.setattr(cli_module, "restore_archive_bytes", fake_restore_archive_bytes, raising=False)
@@ -444,7 +446,7 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
     parser = build_parser()
     args = parser.parse_args(
         [
-            "receive",
+            "bar",
             str(video_one),
             str(video_two),
             "--password",
@@ -454,10 +456,14 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
         ]
     )
 
-    result = cli_module.handle_receive(args)
+    result = cli_module.handle_inbound(args)
     captured = capsys.readouterr()
 
     assert result == 0
+    assert "inbound: starting decode for 2 video(s)" in captured.out
+    assert "inbound: reading video 1/2:" in captured.out
+    assert "inbound: reassembling archive from" in captured.out
+    assert "inbound: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert f"total extracted frame count: {len(session.packet_sequence)}" in captured.out
     assert f"successfully decoded frame count: {len(session.packet_sequence)}" in captured.out
@@ -468,17 +474,17 @@ def test_handle_receive_runs_pipeline_and_prints_session_report(tmp_path, monkey
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_handle_receive_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
+def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
 
     session = build_session_payloads(source_dir, password="secret", chunk_size=64)
     packet_iter = iter(session.packet_sequence[1:])
-    frame_paths = [tmp_path / f"frame-{index}.png" for index in range(len(session.packet_sequence) - 1)]
+    frame_tokens = [f"frame-{index}" for index in range(len(session.packet_sequence) - 1)]
 
-    def fake_extract_frames(video_path, *, output_dir=None, runner=None, ffmpeg_bin="ffmpeg"):
-        return frame_paths
+    def fake_iter_video_frames(video_path):
+        yield from frame_tokens
 
     def fake_preprocess_frame(frame_path):
         return frame_path
@@ -486,14 +492,14 @@ def test_handle_receive_restores_archive_when_first_manifest_frame_is_missing(tm
     def fake_decode_qr_payload(image):
         return next(packet_iter)
 
-    monkeypatch.setattr(cli_module, "extract_frames", fake_extract_frames, raising=False)
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
     monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
     monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
 
     parser = build_parser()
     args = parser.parse_args(
         [
-            "receive",
+            "bar",
             str(tmp_path / "recording.mp4"),
             "--password",
             "secret",
@@ -502,12 +508,55 @@ def test_handle_receive_restores_archive_when_first_manifest_frame_is_missing(tm
         ]
     )
 
-    result = cli_module.handle_receive(args)
+    result = cli_module.handle_inbound(args)
 
     restored_dirs = list((tmp_path / "restored").iterdir())
     assert result == 0
     assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_handle_inbound_reports_missing_chunk_indexes(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_bytes(b"x" * 4096)
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    missing_packet = session.data_packets[-1]
+    packet_stream = iter(
+        packet
+        for packet in session.packet_sequence
+        if packet != missing_packet
+    )
+    frame_tokens = ["frame"] * (len(session.packet_sequence) - session.packet_sequence.count(missing_packet))
+
+    def fake_iter_video_frames(_video_path):
+        yield from frame_tokens
+
+    def fake_preprocess_frame(frame_path):
+        return frame_path
+
+    def fake_decode_qr_payload(_image):
+        return next(packet_stream)
+
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
+    monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
+    monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bar",
+            str(tmp_path / "recording.mp4"),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match=r"missing required chunks: \[\d+\]"):
+        cli_module.handle_inbound(args)
 
 
 def test_session_report_includes_required_summary_fields():
@@ -540,7 +589,7 @@ def test_session_report_includes_required_summary_fields():
     assert "restore: 0.456s" in report
 
 
-def test_player_server_defaults_to_sender_port():
+def test_player_server_defaults_to_outbound_port():
     assert inspect.signature(create_player_app).parameters["port"].default == DEFAULT_PLAYER_PORT
 
 
@@ -562,7 +611,7 @@ def test_player_server_serves_assets_without_repo_files(tmp_path):
         server.shutdown()
         server.server_close()
 
-    assert "Optical Transfer" in index_html
+    assert "AtlasX" in index_html
     assert "loadPayload" in player_js
 
 
@@ -594,3 +643,19 @@ def test_main_requires_a_subcommand():
         main([])
 
     assert excinfo.value.code != 0
+
+
+def test_main_accepts_inbound_password_after_videos(monkeypatch):
+    captured_args = []
+
+    def fake_handle_inbound(args):
+        captured_args.append(args)
+        return 0
+
+    monkeypatch.setattr(cli_module, "handle_inbound", fake_handle_inbound, raising=False)
+
+    result = main(["bar", "IMG_7595.MOV", "--password", "secret"])
+
+    assert result == 0
+    assert captured_args[0].videos == ["IMG_7595.MOV"]
+    assert captured_args[0].password == "secret"
