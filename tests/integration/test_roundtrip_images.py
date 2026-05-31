@@ -88,7 +88,11 @@ def test_inbound_command_restores_archive_from_synthetic_frames(tmp_path: Path, 
     captured = capsys.readouterr()
 
     restored_root = tmp_path / "restored"
-    restored_dirs = list(restored_root.iterdir())
+    restored_dirs = [
+        path
+        for path in restored_root.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
 
     assert result == 0
     assert "inbound: starting decode for 2 video(s)" in captured.out

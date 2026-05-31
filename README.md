@@ -33,7 +33,7 @@ atlasx outbound --source ./payload --password "secret"
 
 Useful options:
 
-- `--chunk-size` to tune QR payload density; the default is a conservative `64` bytes
+- `--chunk-size` to tune QR payload density; the default is `2048` bytes
 - `--player-host` and `--player-port` to control the local preview server
 - `--open-browser` to ask the outbound to launch the preview URL in your default browser
 
@@ -58,7 +58,7 @@ The inbound prints a session report with:
 ## Notes
 
 - The current implementation expects outbound and inbound to use the same password.
-- `inbound` works offline and can merge packets recovered from multiple recordings of the same session.
+- `inbound` works offline, saves verified progress under the output root, and can merge packets recovered from multiple recordings of the same session.
 - Restored files are extracted into a fresh directory so repeated runs do not overwrite the original output root.
 
 ## Manual Validation

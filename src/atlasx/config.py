@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_CHUNK_SIZE = 64
+DEFAULT_CHUNK_SIZE = 2048
 DEFAULT_FRAME_INTERVAL_MS = 600
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 8765

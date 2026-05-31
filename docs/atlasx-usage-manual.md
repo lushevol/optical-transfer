@@ -89,7 +89,7 @@ Useful options:
 
 - `--source`: source directory to transmit. Default: current directory.
 - `--password`: shared password used by outbound and inbound.
-- `--chunk-size`: packet payload size before encryption. Default: `64`.
+- `--chunk-size`: packet payload size before encryption. Default: `2048`.
 - `--frame-interval-ms`: time each QR frame remains on screen. Default: `600`.
 - `--player-host`: bind address for the local preview server. Default: `127.0.0.1`.
 - `--player-port`: bind port for the local preview server. Default: `8765`.
@@ -141,6 +141,7 @@ Notes:
 - inbound restores into a fresh subdirectory under `--output-root`
 - inbound does not overwrite an existing restored directory
 - inbound expects all input videos to belong to the same session
+- inbound saves verified encrypted packets under `.atlasx-progress` in the output root, so a later run with the same `--output-root` can resume from prior recordings
 
 ## Session Report
 
@@ -182,9 +183,9 @@ Interpretation:
 
 ## Current Defaults
 
-These defaults are intentionally conservative:
+These defaults favor shorter recordings while leaving margin under the QR capacity used by the player:
 
-- `chunk_size = 64`
+- `chunk_size = 2048`
 - `frame_interval_ms = 600`
 
 The current outbound preview renders:
@@ -208,7 +209,7 @@ The current outbound preview renders:
 Inbound says `missing required chunks`
 
 - the recording did not yield enough decodable frames
-- record a longer clip
+- record a longer clip and rerun inbound with the same `--output-root` so saved progress is reused
 - try multiple recordings from the same session
 - reduce `--chunk-size`
 - increase `--frame-interval-ms`

@@ -148,6 +148,7 @@ def handle_outbound(args: argparse.Namespace) -> int:
 
 def handle_inbound(args: argparse.Namespace) -> int:
     from atlasx.inbound.collector import PacketCollector, VerifiedChunk
+    from atlasx.inbound.progress import ProgressStore
     from atlasx.inbound.report import SessionStats
 
     iter_video_frames_fn = iter_video_frames
@@ -184,6 +185,7 @@ def handle_inbound(args: argparse.Namespace) -> int:
         _inbound_log("inbound: no password provided")
 
     collector = PacketCollector()
+    progress_store = ProgressStore(output_root)
     crypto_sessions: Dict[bytes, ChunkCryptoSession] = {}
     stats = {
         "input_video_count": len(video_paths),
@@ -206,6 +208,131 @@ def handle_inbound(args: argparse.Namespace) -> int:
     expected_total_chunks: Optional[int] = None
     observed_kdf_salt: Optional[bytes] = None
     total_accepted_chunks = 0
+    loaded_progress_sessions: set[bytes] = set()
+
+    def load_saved_progress(progress_session_id: bytes) -> None:
+        if progress_session_id in loaded_progress_sessions:
+            return
+        loaded_progress_sessions.add(progress_session_id)
+
+        saved_packets = progress_store.load_packets(progress_session_id)
+        if not saved_packets:
+            return
+
+        _inbound_log(
+            "inbound: loaded "
+            f"{len(saved_packets)} saved packet(s) from "
+            f"{progress_store.session_path(progress_session_id)}"
+        )
+        for saved_packet in saved_packets:
+            process_packet(saved_packet, record_progress=False)
+
+    def process_packet(packet_bytes: bytes, *, record_progress: bool) -> bool:
+        nonlocal manifest
+        nonlocal observed_kdf_salt
+        nonlocal session_id
+        nonlocal expected_total_chunks
+        nonlocal total_accepted_chunks
+
+        try:
+            header, encrypted_blob = split_data_packet(packet_bytes)
+        except ValueError:
+            return False
+
+        stats["raw_packet_count"] += 1
+
+        if session_id is None:
+            session_id = header.session_id
+            _inbound_log(
+                "inbound: session identified "
+                f"({session_id.hex()[:16]}...)"
+            )
+            load_saved_progress(session_id)
+        elif header.session_id != session_id:
+            raise ValueError("inbound inputs contain multiple sessions")
+
+        if observed_kdf_salt is None:
+            observed_kdf_salt = header.kdf_salt
+        elif header.kdf_salt != observed_kdf_salt:
+            raise ValueError("inbound inputs mix incompatible KDF salts")
+
+        if expected_total_chunks is None:
+            expected_total_chunks = header.total_chunks
+        elif header.total_chunks != expected_total_chunks:
+            raise ValueError("inbound inputs mix incompatible chunk totals")
+
+        if header.packet_type == PACKET_TYPE_MANIFEST:
+            _inbound_log(
+                "inbound: manifest packet decoded "
+                f"({stats['raw_packet_count']} raw packet(s) seen)"
+            )
+            try:
+                manifest_plaintext = _decrypt_packet_payload(
+                    encrypted_blob=encrypted_blob,
+                    password=args.password,
+                    header=header,
+                    crypto_sessions=crypto_sessions,
+                )
+                decoded_manifest = manifest_from_json_bytes(manifest_plaintext)
+            except InvalidTag:
+                stats["authentication_failure_count"] += 1
+                return False
+            except (TypeError, UnicodeDecodeError, ValueError):
+                return False
+
+            if manifest is None:
+                manifest = decoded_manifest
+            elif manifest != decoded_manifest:
+                raise ValueError("inbound inputs contain conflicting manifest packets")
+            if decoded_manifest.total_chunks != expected_total_chunks:
+                raise ValueError("manifest does not match packet chunk count")
+            _inbound_log(
+                "inbound: manifest validated "
+                f"({decoded_manifest.total_chunks} total chunk(s))"
+            )
+            if record_progress:
+                progress_store.record_packet(header, packet_bytes)
+            return True
+
+        if header.packet_type != PACKET_TYPE_DATA:
+            return False
+
+        try:
+            chunk_payload = _decrypt_packet_payload(
+                encrypted_blob=encrypted_blob,
+                password=args.password,
+                header=header,
+                crypto_sessions=crypto_sessions,
+            )
+        except InvalidTag:
+            stats["authentication_failure_count"] += 1
+            return False
+        except ValueError:
+            return False
+
+        chunk = VerifiedChunk(
+            session_id=header.session_id,
+            chunk_index=header.chunk_index,
+            total_chunks=header.total_chunks,
+            data=chunk_payload,
+        )
+        if collector.add_chunk(chunk):
+            stats["deduplicated_valid_chunk_count"] += 1
+            total_accepted_chunks += 1
+            if record_progress:
+                progress_store.record_packet(header, packet_bytes)
+            if (
+                total_accepted_chunks == 1
+                or total_accepted_chunks % 25 == 0
+                or total_accepted_chunks == expected_total_chunks
+            ):
+                _inbound_log(
+                    "inbound: accepted "
+                    f"{total_accepted_chunks}/{expected_total_chunks} chunk(s)"
+                )
+            return True
+
+        return False
 
     for video_index, video_path in enumerate(video_paths, start=1):
         _inbound_log(
@@ -219,8 +346,17 @@ def handle_inbound(args: argparse.Namespace) -> int:
             stats["total_extracted_frame_count"] += 1
             video_frame_count += 1
 
-            processed_frame = preprocess_frame_fn(frame)
-            packet_bytes = decode_qr_payload_fn(processed_frame)
+            try:
+                processed_frame = preprocess_frame_fn(frame)
+                packet_bytes = decode_qr_payload_fn(processed_frame)
+            except ValueError:
+                if video_frame_count == 1 or video_frame_count % 25 == 0:
+                    _inbound_log(
+                        "inbound: "
+                        f"{video_path.name}: extracted {video_frame_count} frame(s), "
+                        f"decoded {video_decoded_count} QR payload(s)"
+                    )
+                continue
             if packet_bytes is None:
                 if video_frame_count == 1 or video_frame_count % 25 == 0:
                     _inbound_log(
@@ -233,94 +369,7 @@ def handle_inbound(args: argparse.Namespace) -> int:
             stats["successfully_decoded_frame_count"] += 1
             video_decoded_count += 1
 
-            try:
-                header, encrypted_blob = split_data_packet(packet_bytes)
-            except ValueError:
-                if video_frame_count == 1 or video_frame_count % 25 == 0:
-                    _inbound_log(
-                        "inbound: "
-                        f"{video_path.name}: extracted {video_frame_count} frame(s), "
-                        f"decoded {video_decoded_count} QR payload(s)"
-                    )
-                continue
-
-            stats["raw_packet_count"] += 1
-
-            if session_id is None:
-                session_id = header.session_id
-                _inbound_log(
-                    "inbound: session identified "
-                    f"({session_id.hex()[:16]}...)"
-                )
-            elif header.session_id != session_id:
-                raise ValueError("inbound inputs contain multiple sessions")
-
-            if observed_kdf_salt is None:
-                observed_kdf_salt = header.kdf_salt
-            elif header.kdf_salt != observed_kdf_salt:
-                raise ValueError("inbound inputs mix incompatible KDF salts")
-
-            if expected_total_chunks is None:
-                expected_total_chunks = header.total_chunks
-            elif header.total_chunks != expected_total_chunks:
-                raise ValueError("inbound inputs mix incompatible chunk totals")
-
-            if header.packet_type == PACKET_TYPE_MANIFEST:
-                _inbound_log(
-                    "inbound: manifest packet decoded "
-                    f"({stats['raw_packet_count']} raw packet(s) seen)"
-                )
-                manifest_plaintext = _decrypt_packet_payload(
-                    encrypted_blob=encrypted_blob,
-                    password=args.password,
-                    header=header,
-                    crypto_sessions=crypto_sessions,
-                )
-                decoded_manifest = manifest_from_json_bytes(manifest_plaintext)
-                if manifest is None:
-                    manifest = decoded_manifest
-                elif manifest != decoded_manifest:
-                    raise ValueError("inbound inputs contain conflicting manifest packets")
-                if decoded_manifest.total_chunks != expected_total_chunks:
-                    raise ValueError("manifest does not match packet chunk count")
-                _inbound_log(
-                    "inbound: manifest validated "
-                    f"({decoded_manifest.total_chunks} total chunk(s))"
-                )
-                continue
-
-            if header.packet_type != PACKET_TYPE_DATA:
-                continue
-
-            try:
-                chunk_payload = _decrypt_packet_payload(
-                    encrypted_blob=encrypted_blob,
-                    password=args.password,
-                    header=header,
-                    crypto_sessions=crypto_sessions,
-                )
-            except InvalidTag:
-                stats["authentication_failure_count"] += 1
-                continue
-
-            chunk = VerifiedChunk(
-                session_id=header.session_id,
-                chunk_index=header.chunk_index,
-                total_chunks=header.total_chunks,
-                data=chunk_payload,
-            )
-            if collector.add_chunk(chunk):
-                stats["deduplicated_valid_chunk_count"] += 1
-                total_accepted_chunks += 1
-                if (
-                    total_accepted_chunks == 1
-                    or total_accepted_chunks % 25 == 0
-                    or total_accepted_chunks == expected_total_chunks
-                ):
-                    _inbound_log(
-                        "inbound: accepted "
-                        f"{total_accepted_chunks}/{expected_total_chunks} chunk(s)"
-                    )
+            process_packet(packet_bytes, record_progress=True)
             if video_frame_count == 1 or video_frame_count % 25 == 0:
                 _inbound_log(
                     "inbound: "
@@ -331,14 +380,22 @@ def handle_inbound(args: argparse.Namespace) -> int:
         stage_timings["preprocess_decode"] += perf_counter() - decode_started
 
     if session_id is None or manifest is None or expected_total_chunks is None:
-        raise ValueError("inbound inputs did not include a complete manifest")
+        if session_id is None:
+            raise ValueError("inbound inputs did not include a complete manifest")
+        raise ValueError(
+            "inbound inputs did not include a complete manifest; "
+            f"progress saved in {progress_store.session_path(session_id)}"
+        )
 
     chunks = collector.chunks(session_id)
     stats["missing_chunk_count"] = max(expected_total_chunks - len(chunks), 0)
     if stats["missing_chunk_count"]:
         found_indexes = {chunk.chunk_index for chunk in chunks}
         missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
-        raise ValueError(f"inbound inputs are missing required chunks: {missing_indexes}")
+        raise ValueError(
+            "inbound inputs are missing required chunks: "
+            f"{missing_indexes}; progress saved in {progress_store.session_path(session_id)}"
+        )
 
     _inbound_log(
         "inbound: reassembling archive "
@@ -356,6 +413,7 @@ def handle_inbound(args: argparse.Namespace) -> int:
     restore_started = perf_counter()
     restored_dir = restore_archive_bytes_fn(archive_bytes, output_root)
     stage_timings["restore"] += perf_counter() - restore_started
+    progress_store.clear_session(session_id)
 
     session_stats = SessionStats(
         input_video_count=stats["input_video_count"],

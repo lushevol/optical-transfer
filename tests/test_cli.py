@@ -8,7 +8,7 @@ import atlasx.cli as cli_module
 import pytest
 
 from atlasx.cli import build_parser, build_preview_url, build_outbound_config, handle_outbound, main
-from atlasx.config import DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
+from atlasx.config import DEFAULT_CHUNK_SIZE, DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
 from atlasx.inbound.report import SessionStats, build_session_report
 from atlasx.outbound.player_server import create_player_app
 from atlasx.outbound.session import build_session_payloads
@@ -43,7 +43,8 @@ def test_outbound_command_builds_default_outbound_config(tmp_path):
     assert config.player_host == DEFAULT_PLAYER_HOST
     assert config.player_port == DEFAULT_PLAYER_PORT
     assert config.frame_interval_ms == DEFAULT_FRAME_INTERVAL_MS
-    assert config.chunk_size == 64
+    assert config.chunk_size == DEFAULT_CHUNK_SIZE
+    assert config.chunk_size >= 2048
 
 
 def test_outbound_command_does_not_open_browser_by_default():
@@ -474,6 +475,54 @@ def test_handle_inbound_runs_pipeline_and_prints_session_report(tmp_path, monkey
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
+def test_handle_inbound_skips_unparseable_frame_without_losing_progress(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    packet_iter = iter(session.packet_sequence)
+    frame_tokens = ["bad-frame"] + [f"frame-{index}" for index in range(len(session.packet_sequence))]
+
+    def fake_iter_video_frames(_video_path):
+        yield from frame_tokens
+
+    def fake_preprocess_frame(frame_path):
+        return frame_path
+
+    def fake_decode_qr_payload(image):
+        if image == "bad-frame":
+            raise ValueError("cannot parse QR payload")
+        return next(packet_iter)
+
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
+    monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
+    monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bar",
+            str(tmp_path / "recording.mp4"),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    result = cli_module.handle_inbound(args)
+
+    restored_dirs = [
+        path
+        for path in (tmp_path / "restored").iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert result == 0
+    assert len(restored_dirs) == 1
+    assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
 def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -510,7 +559,11 @@ def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tm
 
     result = cli_module.handle_inbound(args)
 
-    restored_dirs = list((tmp_path / "restored").iterdir())
+    restored_dirs = [
+        path
+        for path in (tmp_path / "restored").iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     assert result == 0
     assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
@@ -557,6 +610,61 @@ def test_handle_inbound_reports_missing_chunk_indexes(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match=r"missing required chunks: \[\d+\]"):
         cli_module.handle_inbound(args)
+
+
+def test_handle_inbound_resumes_from_saved_progress_after_missing_chunk(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_bytes(b"x" * 4096)
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    missing_packet = session.data_packets[-1]
+    output_root = tmp_path / "restored"
+    parser = build_parser()
+
+    def run_with_packets(packets):
+        packet_iter = iter(packets)
+        frame_tokens = ["frame"] * len(packets)
+
+        def fake_iter_video_frames(_video_path):
+            yield from frame_tokens
+
+        def fake_preprocess_frame(frame_path):
+            return frame_path
+
+        def fake_decode_qr_payload(_image):
+            return next(packet_iter)
+
+        monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
+        monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
+        monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
+
+        args = parser.parse_args(
+            [
+                "bar",
+                str(tmp_path / "recording.mp4"),
+                "--password",
+                "secret",
+                "--output-root",
+                str(output_root),
+            ]
+        )
+        return cli_module.handle_inbound(args)
+
+    first_run_packets = [
+        packet
+        for packet in session.packet_sequence
+        if packet != missing_packet
+    ]
+
+    with pytest.raises(ValueError, match="progress saved"):
+        run_with_packets(first_run_packets)
+
+    assert run_with_packets([missing_packet]) == 0
+
+    restored_dirs = [path for path in output_root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    assert len(restored_dirs) == 1
+    assert (restored_dirs[0] / "message.txt").read_bytes() == b"x" * 4096
 
 
 def test_session_report_includes_required_summary_fields():
