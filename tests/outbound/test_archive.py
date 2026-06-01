@@ -52,3 +52,22 @@ def test_archive_directory_uses_maximum_gzip_compression_level(tmp_path, monkeyp
     archive_directory(source_dir, tmp_path / "payload.tar.gz")
 
     assert seen == {"compresslevel": 9, "mtime": 0}
+
+
+def test_archive_directory_excludes_outbound_session_bundle(tmp_path) -> None:
+    source_dir = tmp_path / "payload"
+    source_dir.mkdir()
+    (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
+    cache_dir = source_dir / ".atlasx-outbound"
+    cache_dir.mkdir()
+    (cache_dir / "session.json").write_text('{"cached":true}', encoding="utf-8")
+
+    output_path = tmp_path / "payload.tar.gz"
+
+    archive_directory(source_dir, output_path)
+
+    with tarfile.open(output_path, mode="r:gz") as tar:
+        member_names = tar.getnames()
+
+    assert "root.txt" in member_names
+    assert ".atlasx-outbound/session.json" not in member_names

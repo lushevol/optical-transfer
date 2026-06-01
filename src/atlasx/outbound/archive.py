@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Optional
 
 
+_EXCLUDED_DIRECTORY_NAMES = {".atlasx-outbound"}
+
+
 @dataclass(frozen=True)
 class ArchiveResult:
     archive_path: Path
@@ -29,7 +32,7 @@ def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
             (
                 p
                 for p in source_dir.rglob("*")
-                if p.is_file() or (p.is_dir() and not any(p.iterdir()))
+                if _should_archive_path(p, source_dir)
             ),
             key=lambda path: (len(path.relative_to(source_dir).parts), path.relative_to(source_dir).as_posix()),
         )
@@ -62,3 +65,10 @@ def archive_directory(source_dir: Path, output_path: Path) -> ArchiveResult:
         archive_hash=hashlib.sha256(archive_bytes).hexdigest(),
         original_directory_name=source_dir.name,
     )
+
+
+def _should_archive_path(path: Path, source_dir: Path) -> bool:
+    relative_parts = path.relative_to(source_dir).parts
+    if any(part in _EXCLUDED_DIRECTORY_NAMES for part in relative_parts):
+        return False
+    return path.is_file() or (path.is_dir() and not any(path.iterdir()))

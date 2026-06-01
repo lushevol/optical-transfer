@@ -25,7 +25,8 @@ from atlasx.outbound.crypto import ChunkCryptoSession
 from atlasx.outbound.manifest import manifest_from_json_bytes
 from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, split_data_packet
 from atlasx.outbound.player_server import create_player_app
-from atlasx.outbound.session import build_session_payloads
+from atlasx.outbound.session import build_session_payloads, filter_session_payloads
+from atlasx.outbound.session_store import load_session_bundle, save_session_bundle
 from atlasx.inbound.restore import restore_archive_bytes as _default_restore_archive_bytes
 
 iter_video_frames = None
@@ -119,6 +120,7 @@ def _add_outbound_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--player-host", default=DEFAULT_PLAYER_HOST)
     parser.add_argument("--player-port", type=int, default=DEFAULT_PLAYER_PORT)
     parser.add_argument("--open-browser", action="store_true")
+    parser.add_argument("--missing-chunks")
 
 
 def _add_inbound_arguments(parser: argparse.ArgumentParser) -> None:
@@ -129,7 +131,15 @@ def _add_inbound_arguments(parser: argparse.ArgumentParser) -> None:
 
 def handle_outbound(args: argparse.Namespace) -> int:
     config = build_outbound_config(args)
-    payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
+    if args.missing_chunks is None:
+        payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
+        save_session_bundle(config.source_dir, payloads)
+    else:
+        missing_indexes = parse_missing_chunk_indexes(args.missing_chunks)
+        payloads = filter_session_payloads(
+            load_session_bundle(config.source_dir),
+            missing_indexes,
+        )
     server = create_player_app(
         payloads,
         frame_interval_ms=config.frame_interval_ms,
@@ -144,6 +154,28 @@ def handle_outbound(args: argparse.Namespace) -> int:
         wait_fn=wait_forever,
     )
     return 0
+
+
+def parse_missing_chunk_indexes(value: str) -> list[int]:
+    raw_parts = value.split(",")
+    indexes: list[int] = []
+    for raw_part in raw_parts:
+        part = raw_part.strip()
+        if not part:
+            raise ValueError("missing chunk indexes must not contain empty entries")
+        try:
+            index = int(part)
+        except ValueError as exc:
+            raise ValueError(f"invalid missing chunk index: {part}") from exc
+        if index < 0:
+            raise ValueError("missing chunk indexes must not be negative")
+        indexes.append(index)
+
+    if not indexes:
+        raise ValueError("missing chunk indexes must not be empty")
+    if len(set(indexes)) != len(indexes):
+        raise ValueError("missing chunk indexes must not contain duplicates")
+    return sorted(indexes)
 
 
 def handle_inbound(args: argparse.Namespace) -> int:

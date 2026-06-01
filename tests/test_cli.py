@@ -14,6 +14,11 @@ from atlasx.outbound.player_server import create_player_app
 from atlasx.outbound.session import build_session_payloads
 
 
+@pytest.fixture(autouse=True)
+def _default_noop_session_bundle_save(monkeypatch):
+    monkeypatch.setattr(cli_module, "save_session_bundle", lambda source_dir, payloads: None, raising=False)
+
+
 def test_parser_accepts_outbound_and_inbound_subcommands():
     parser = build_parser()
     assert parser.parse_args(["foo"]).command == "foo"
@@ -59,6 +64,20 @@ def test_outbound_command_accepts_frame_interval_override():
     args = parser.parse_args(["foo", "--frame-interval-ms", "450"])
 
     assert args.frame_interval_ms == 450
+
+
+def test_outbound_command_accepts_missing_chunks_option():
+    parser = build_parser()
+    args = parser.parse_args(["foo", "--missing-chunks", "3, 7,9"])
+
+    assert args.missing_chunks == "3, 7,9"
+    assert cli_module.parse_missing_chunk_indexes(args.missing_chunks) == [3, 7, 9]
+
+
+@pytest.mark.parametrize("value", ["", " ", "1,,2", "-1", "1,a", "2,1,2"])
+def test_parse_missing_chunk_indexes_rejects_invalid_input(value):
+    with pytest.raises(ValueError):
+        cli_module.parse_missing_chunk_indexes(value)
 
 
 def test_outbound_command_rejects_ipv6_player_hosts(tmp_path):
@@ -297,6 +316,116 @@ def test_handle_outbound_waits_for_preview_and_closes_server(tmp_path, monkeypat
     assert calls == ["build_session_payloads", "create_player_app", "wait_forever"]
     assert server.shutdown_called is True
     assert server.server_close_called is True
+
+
+def test_handle_outbound_saves_session_bundle_after_full_build(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret"])
+
+    calls: List[Tuple[str, object]] = []
+
+    class DummyPayloads:
+        session_id = b"session"
+        chunk_size = 64
+        total_chunks = 2
+        manifest_packet = b"manifest"
+        data_packets = [b"chunk-0", b"chunk-1"]
+        packet_sequence = [b"manifest", b"chunk-0", b"chunk-1"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_build_session_payloads(source_dir_arg, password_arg, chunk_size_arg):
+        calls.append(("build_session_payloads", (source_dir_arg, password_arg, chunk_size_arg)))
+        return DummyPayloads()
+
+    def fake_save_session_bundle(source_dir_arg, payloads_arg):
+        calls.append(("save_session_bundle", (source_dir_arg, payloads_arg)))
+
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
+        calls.append(("create_player_app", payloads_arg))
+        return DummyServer()
+
+    def fake_wait_forever():
+        calls.append(("wait_forever", None))
+
+    monkeypatch.setattr(cli_module, "build_session_payloads", fake_build_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "save_session_bundle", fake_save_session_bundle, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    assert handle_outbound(args) == 0
+
+    assert calls[0][0] == "build_session_payloads"
+    assert calls[1][0] == "save_session_bundle"
+    assert calls[1][1][0] == source_dir
+    assert calls[2][0] == "create_player_app"
+
+
+def test_handle_outbound_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+
+    parser = build_parser()
+    args = parser.parse_args(["foo", "--source", str(source_dir), "--missing-chunks", "1,3"])
+
+    calls: List[Tuple[str, object]] = []
+
+    class DummyPayloads:
+        session_id = b"session"
+        total_chunks = 4
+        packet_sequence = [b"full"]
+
+    class FilteredPayloads:
+        session_id = b"session"
+        packet_sequence = [b"manifest", b"chunk-1", b"chunk-3"]
+
+    class DummyServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_load_session_bundle(source_dir_arg):
+        calls.append(("load_session_bundle", source_dir_arg))
+        return DummyPayloads()
+
+    def fake_filter_session_payloads(payloads_arg, missing_indexes_arg):
+        calls.append(("filter_session_payloads", (payloads_arg, missing_indexes_arg)))
+        return FilteredPayloads()
+
+    def fake_create_player_app(payloads_arg, *, frame_interval_ms, host, port, player_root=None):
+        calls.append(("create_player_app", payloads_arg))
+        return DummyServer()
+
+    def fake_wait_forever():
+        calls.append(("wait_forever", None))
+
+    monkeypatch.setattr(cli_module, "load_session_bundle", fake_load_session_bundle, raising=False)
+    monkeypatch.setattr(cli_module, "filter_session_payloads", fake_filter_session_payloads, raising=False)
+    monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
+    monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
+
+    assert handle_outbound(args) == 0
+
+    assert calls[0] == ("load_session_bundle", source_dir)
+    assert calls[1][0] == "filter_session_payloads"
+    assert calls[1][1][1] == [1, 3]
+    assert calls[2][0] == "create_player_app"
+    assert isinstance(calls[2][1], FilteredPayloads)
 
 
 def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):

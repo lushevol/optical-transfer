@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .venv-outbound/
 .venv-inbound/
+.atlasx-outbound/
 dist/
 build/
 *.egg-info/

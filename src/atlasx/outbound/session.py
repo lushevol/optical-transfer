@@ -55,6 +55,37 @@ class SessionPayloadSet:
         return self.packet_payloads
 
 
+def filter_session_payloads(payloads: SessionPayloadSet, missing_indexes: list[int]) -> SessionPayloadSet:
+    if not missing_indexes:
+        raise ValueError("missing chunk indexes must not be empty")
+    if len(set(missing_indexes)) != len(missing_indexes):
+        raise ValueError("missing chunk indexes must not contain duplicates")
+
+    invalid_indexes = [
+        index
+        for index in missing_indexes
+        if index < 0 or index >= payloads.total_chunks
+    ]
+    if invalid_indexes:
+        raise ValueError(
+            "missing chunk indexes are outside the session range: "
+            f"{invalid_indexes}"
+        )
+
+    return SessionPayloadSet(
+        session_id=payloads.session_id,
+        archive_result=payloads.archive_result,
+        archive_bytes=payloads.archive_bytes,
+        manifest=payloads.manifest,
+        crypto_session=payloads.crypto_session,
+        kdf_salt=payloads.kdf_salt,
+        chunk_size=payloads.chunk_size,
+        total_chunks=payloads.total_chunks,
+        manifest_packet=payloads.manifest_packet,
+        data_packets=[payloads.data_packets[index] for index in missing_indexes],
+    )
+
+
 def build_session_payloads(source_dir: Path, password: str, chunk_size: int) -> SessionPayloadSet:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
