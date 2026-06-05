@@ -22,6 +22,8 @@ def session_bundle_path(source_dir: Path) -> Path:
 def save_session_bundle(source_dir: Path, payloads: SessionPayloadSet) -> Path:
     path = session_bundle_path(source_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Clean up any stale .tmp files left from a previous crash
+    _clean_stale_tmp_files(path.parent)
     temporary_path = path.with_suffix(path.suffix + ".tmp")
     body = json.dumps(_bundle_payload(payloads), sort_keys=True, separators=(",", ":")).encode("utf-8")
     temporary_path.write_bytes(body)
@@ -89,3 +91,8 @@ def _session_from_bundle(payload: dict[str, Any], *, bundle_path: Path) -> Sessi
         manifest_packet=bytes.fromhex(payload["manifest_packet"]),
         data_packets=data_packets,
     )
+
+
+def _clean_stale_tmp_files(directory: Path) -> None:
+    for tmp_path in directory.glob("*.tmp"):
+        tmp_path.unlink(missing_ok=True)
