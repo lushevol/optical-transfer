@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import rmtree
 from typing import List
 
-from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
+from atlasx.foo.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
 from atlasx.protocol.header import PacketHeader
 
 

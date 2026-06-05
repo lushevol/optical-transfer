@@ -25,8 +25,8 @@ V1 prioritizes recovery success rate over throughput. The target payload size is
 
 V1 is a CLI-driven system with:
 
-- An outbound CLI that packages data and launches a local web player in Chromium for fullscreen QR playback
-- An inbound CLI that ingests one or more video files and reconstructs the directory offline
+- An foo CLI that packages data and launches a local web player in Chromium for fullscreen QR playback
+- An bar CLI that ingests one or more video files and reconstructs the directory offline
 
 The system should be treated as a reliable transfer protocol over an unreliable QR channel. Video is not trusted as a reliable container.
 
@@ -34,19 +34,19 @@ The system should be treated as a reliable transfer protocol over an unreliable 
 
 ### Operating Environment
 
-- Outbound device: MacBook screen, high refresh supported
+- Foo device: MacBook screen, high refresh supported
 - Recording device: phone capable of 4K at 60 Hz
-- Inbound device: macOS
+- Bar device: macOS
 - Native dependencies are acceptable
 
 ### UX and Workflow
 
 - Single directory per session
-- Outbound is CLI-based
-- Inbound is CLI-based
-- Outbound playback uses a local webpage in Chrome/Chromium
-- Inbound works in offline batch mode from recorded video files
-- Inbound may accept multiple videos and merge chunks by `session_id`
+- Foo is CLI-based
+- Bar is CLI-based
+- Foo playback uses a local webpage in Chrome/Chromium
+- Bar works in offline batch mode from recorded video files
+- Bar may accept multiple videos and merge chunks by `session_id`
 - Recovered output must go into a fresh directory and must not overwrite existing files
 
 ### Data Handling
@@ -78,11 +78,11 @@ The system should be treated as a reliable transfer protocol over an unreliable 
 - Conservative defaults with CLI overrides
 - Protocol versioning and capability bits are reserved in V1
 - Incompatible protocol versions may fail fast in V1
-- Inbound should perform practical preprocessing, not only naive frame extraction
+- Bar should perform practical preprocessing, not only naive frame extraction
 
 ## Recommended High-Level Architecture
 
-### Outbound Pipeline
+### Foo Pipeline
 
 `directory -> tar.gz -> fixed-size logical chunks -> per-chunk AEAD -> packet assembly -> QR render -> fixed-round playback`
 
@@ -95,7 +95,7 @@ Modules:
 - `qr renderer`
 - `playback controller`
 
-### Inbound Pipeline
+### Bar Pipeline
 
 `videos -> frame extraction -> image preprocessing -> QR decode -> packet parse -> dedupe/collect -> per-chunk decrypt/verify -> reassembly -> archive hash verify -> unpack`
 
@@ -141,7 +141,7 @@ Reserved-for-future fields:
 
 Design notes:
 
-- The header must be sufficient for the inbound to identify session membership and start decryption setup
+- The header must be sufficient for the bar to identify session membership and start decryption setup
 - The transport header should remain compact and mostly stable
 - The transport header must not include unnecessary file semantics
 
@@ -154,7 +154,7 @@ Properties:
 - Stable `session_id`
 - One transfer object per session
 - Same session may be replayed across multiple recording attempts
-- Inbound may merge data from multiple input videos for the same session
+- Bar may merge data from multiple input videos for the same session
 
 ### 3. Encrypted Manifest Layer
 
@@ -204,7 +204,7 @@ Rejected for V1:
 
 ## Playback Strategy
 
-V1 outbound playback should use:
+V1 foo playback should use:
 
 - One large QR per frame
 - High-contrast fullscreen rendering
@@ -217,9 +217,9 @@ Recommended behavior:
 - Broadcast the full chunk set in each round
 - Keep default behavior deterministic rather than adaptive
 
-## Inbound Strategy
+## Bar Strategy
 
-The inbound should accept one or more input videos and merge recoverable data by `session_id`.
+The bar should accept one or more input videos and merge recoverable data by `session_id`.
 
 Required behavior:
 
@@ -236,7 +236,7 @@ Required behavior:
 
 A session is successful only when all of the following hold:
 
-- The inbound has all required logical chunks for the object
+- The bar has all required logical chunks for the object
 - Every accepted chunk passed authentication
 - The reconstructed archive hash matches the manifest hash
 - Archive unpacking succeeds
@@ -245,7 +245,7 @@ This should be implemented in a way that is compatible with future FEC completio
 
 ## Reporting and Diagnostics
 
-The inbound must emit a detailed session report.
+The bar must emit a detailed session report.
 
 Minimum report fields:
 
@@ -270,7 +270,7 @@ Expected dependencies:
 - `ffmpeg` for frame extraction and video preprocessing
 - `opencv` or equivalent image-processing capability
 - `zxing`, `zbar`, or equivalent QR decoder
-- `Chrome/Chromium` for the outbound playback surface
+- `Chrome/Chromium` for the foo playback surface
 
 ## Parameter Strategy
 

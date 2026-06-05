@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atlasx.outbound.chunker import Chunk, chunk_bytes
+from atlasx.foo.chunker import Chunk, chunk_bytes
 
 
 def test_chunk_bytes_yields_stable_chunk_indexes() -> None:

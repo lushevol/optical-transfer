@@ -32,7 +32,7 @@ def decode_qr_image(image: Image.Image) -> Optional[str]:
 
 
 def _decode_payload_image(image: Image.Image) -> bytes:
-    from atlasx.outbound.qr_payloads import decode_payload_image
+    from atlasx.foo.qr_payloads import decode_payload_image
 
     return decode_payload_image(image)
 

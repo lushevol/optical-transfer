@@ -7,7 +7,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
-from atlasx.outbound.chunker import Chunk
+from atlasx.foo.chunker import Chunk
 
 
 _KEY_LENGTH = 32

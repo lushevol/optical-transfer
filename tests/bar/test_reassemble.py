@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from atlasx.inbound.collector import VerifiedChunk
-from atlasx.inbound.reassemble import reassemble_archive
+from atlasx.bar.collector import VerifiedChunk
+from atlasx.bar.reassemble import reassemble_archive
 
 
 def test_reassembler_requires_complete_logical_chunk_set() -> None:

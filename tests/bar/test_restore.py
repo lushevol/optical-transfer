@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atlasx.inbound.restore import restore_archive_bytes
-from atlasx.outbound.archive import archive_directory
+from atlasx.bar.restore import restore_archive_bytes
+from atlasx.foo.archive import archive_directory
 
 
 def test_restore_archive_extracts_into_fresh_directory(tmp_path) -> None:

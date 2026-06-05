@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from atlasx.protocol.header import PacketHeader, encode_header
-from atlasx.outbound.packets import build_data_packet, split_data_packet
-from atlasx.outbound.session import build_session_payloads
+from atlasx.foo.packets import build_data_packet, split_data_packet
+from atlasx.foo.session import build_session_payloads
 
 
 def test_build_data_packet_wraps_header_and_ciphertext() -> None:

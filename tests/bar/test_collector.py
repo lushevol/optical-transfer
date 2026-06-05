@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from atlasx.inbound.collector import PacketCollector, VerifiedChunk
+from atlasx.bar.collector import PacketCollector, VerifiedChunk
 
 
 def test_collector_deduplicates_chunks_by_session_and_index() -> None:

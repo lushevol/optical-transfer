@@ -7,11 +7,11 @@ import urllib.request
 import atlasx.cli as cli_module
 import pytest
 
-from atlasx.cli import build_parser, build_preview_url, build_outbound_config, handle_outbound, main
+from atlasx.cli import build_parser, build_preview_url, build_foo_config, handle_foo, main
 from atlasx.config import DEFAULT_CHUNK_SIZE, DEFAULT_FRAME_INTERVAL_MS, DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT
-from atlasx.inbound.report import SessionStats, build_session_report
-from atlasx.outbound.player_server import create_player_app
-from atlasx.outbound.session import build_session_payloads
+from atlasx.bar.report import SessionStats, build_session_report
+from atlasx.foo.player_server import create_player_app
+from atlasx.foo.session import build_session_payloads
 
 
 @pytest.fixture(autouse=True)
@@ -19,13 +19,13 @@ def _default_noop_session_bundle_save(monkeypatch):
     monkeypatch.setattr(cli_module, "save_session_bundle", lambda source_dir, payloads: None, raising=False)
 
 
-def test_parser_accepts_outbound_and_inbound_subcommands():
+def test_parser_accepts_foo_and_bar_subcommands():
     parser = build_parser()
     assert parser.parse_args(["foo"]).command == "foo"
     assert parser.parse_args(["bar", "recording.mp4"]).command == "bar"
 
 
-def test_inbound_command_accepts_multiple_videos():
+def test_bar_command_accepts_multiple_videos():
     parser = build_parser()
     args = parser.parse_args(["bar", "recording1.mp4", "recording2.mp4", "--password", "secret"])
 
@@ -33,7 +33,14 @@ def test_inbound_command_accepts_multiple_videos():
     assert args.password == "secret"
 
 
-def test_outbound_command_builds_default_outbound_config(tmp_path):
+def test_bar_command_accepts_decode_workers_override():
+    parser = build_parser()
+    args = parser.parse_args(["bar", "recording.mp4", "--decode-workers", "1"])
+
+    assert args.decode_workers == 1
+
+
+def test_foo_command_builds_default_foo_config(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -41,7 +48,7 @@ def test_outbound_command_builds_default_outbound_config(tmp_path):
     parser = build_parser()
     args = parser.parse_args(["foo", "--source", str(source_dir), "--password", "secret"])
 
-    config = build_outbound_config(args)
+    config = build_foo_config(args)
 
     assert config.source_dir == source_dir
     assert config.password == "secret"
@@ -49,24 +56,24 @@ def test_outbound_command_builds_default_outbound_config(tmp_path):
     assert config.player_port == DEFAULT_PLAYER_PORT
     assert config.frame_interval_ms == DEFAULT_FRAME_INTERVAL_MS
     assert config.chunk_size == DEFAULT_CHUNK_SIZE
-    assert config.chunk_size >= 2048
+    assert config.chunk_size >= 256
 
 
-def test_outbound_command_does_not_open_browser_by_default():
+def test_foo_command_does_not_open_browser_by_default():
     parser = build_parser()
     args = parser.parse_args(["foo"])
 
     assert args.open_browser is False
 
 
-def test_outbound_command_accepts_frame_interval_override():
+def test_foo_command_accepts_frame_interval_override():
     parser = build_parser()
     args = parser.parse_args(["foo", "--frame-interval-ms", "450"])
 
     assert args.frame_interval_ms == 450
 
 
-def test_outbound_command_accepts_missing_chunks_option():
+def test_foo_command_accepts_missing_chunks_option():
     parser = build_parser()
     args = parser.parse_args(["foo", "--missing-chunks", "3, 7,9"])
 
@@ -80,7 +87,7 @@ def test_parse_missing_chunk_indexes_rejects_invalid_input(value):
         cli_module.parse_missing_chunk_indexes(value)
 
 
-def test_outbound_command_rejects_ipv6_player_hosts(tmp_path):
+def test_foo_command_rejects_ipv6_player_hosts(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
 
@@ -98,7 +105,7 @@ def test_outbound_command_rejects_ipv6_player_hosts(tmp_path):
     )
 
     with pytest.raises(ValueError):
-        build_outbound_config(args)
+        build_foo_config(args)
 
 
 def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
@@ -108,7 +115,7 @@ def test_build_preview_url_normalizes_wildcard_and_ipv6_hosts():
     assert build_preview_url("example.com", 8765) == "http://example.com:8765/"
 
 
-def test_handle_outbound_prints_preview_url_without_opening_browser_by_default(tmp_path, monkeypatch, capsys):
+def test_handle_foo_prints_preview_url_without_opening_browser_by_default(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -156,7 +163,7 @@ def test_handle_outbound_prints_preview_url_without_opening_browser_by_default(t
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
     captured = capsys.readouterr()
 
     assert result == 0
@@ -167,7 +174,7 @@ def test_handle_outbound_prints_preview_url_without_opening_browser_by_default(t
     assert calls[2][0] == "wait_forever"
 
 
-def test_handle_outbound_opens_browser_when_requested(tmp_path, monkeypatch):
+def test_handle_foo_opens_browser_when_requested(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -210,7 +217,7 @@ def test_handle_outbound_opens_browser_when_requested(tmp_path, monkeypatch):
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
 
     assert result == 0
     assert calls[0][0] == "build_session_payloads"
@@ -219,7 +226,7 @@ def test_handle_outbound_opens_browser_when_requested(tmp_path, monkeypatch):
     assert calls[3][0] == "wait_forever"
 
 
-def test_handle_outbound_passes_frame_interval_to_player_server(tmp_path, monkeypatch):
+def test_handle_foo_passes_frame_interval_to_player_server(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -259,14 +266,14 @@ def test_handle_outbound_passes_frame_interval_to_player_server(tmp_path, monkey
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
 
     assert result == 0
     assert calls[1][0] == "create_player_app"
     assert calls[1][1][1] == 450
 
 
-def test_handle_outbound_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
+def test_handle_foo_waits_for_preview_and_closes_server(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -310,7 +317,7 @@ def test_handle_outbound_waits_for_preview_and_closes_server(tmp_path, monkeypat
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
 
     assert result == 0
     assert calls == ["build_session_payloads", "create_player_app", "wait_forever"]
@@ -318,7 +325,7 @@ def test_handle_outbound_waits_for_preview_and_closes_server(tmp_path, monkeypat
     assert server.server_close_called is True
 
 
-def test_handle_outbound_saves_session_bundle_after_full_build(tmp_path, monkeypatch):
+def test_handle_foo_saves_session_bundle_after_full_build(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -364,7 +371,7 @@ def test_handle_outbound_saves_session_bundle_after_full_build(tmp_path, monkeyp
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    assert handle_outbound(args) == 0
+    assert handle_foo(args) == 0
 
     assert calls[0][0] == "build_session_payloads"
     assert calls[1][0] == "save_session_bundle"
@@ -372,7 +379,7 @@ def test_handle_outbound_saves_session_bundle_after_full_build(tmp_path, monkeyp
     assert calls[2][0] == "create_player_app"
 
 
-def test_handle_outbound_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypatch):
+def test_handle_foo_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
 
@@ -419,7 +426,7 @@ def test_handle_outbound_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypa
     monkeypatch.setattr(cli_module, "create_player_app", fake_create_player_app, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    assert handle_outbound(args) == 0
+    assert handle_foo(args) == 0
 
     assert calls[0] == ("load_session_bundle", source_dir)
     assert calls[1][0] == "filter_session_payloads"
@@ -428,7 +435,7 @@ def test_handle_outbound_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypa
     assert isinstance(calls[2][1], FilteredPayloads)
 
 
-def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
+def test_handle_foo_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -466,7 +473,7 @@ def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_laun
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
 
     captured = capsys.readouterr()
 
@@ -474,7 +481,7 @@ def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_laun
     assert "http://127.0.0.1:8765/" in captured.out
 
 
-def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_launch_raises(tmp_path, monkeypatch, capsys):
+def test_handle_foo_prints_preview_url_when_open_browser_requested_but_launch_raises(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -523,7 +530,7 @@ def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_laun
     monkeypatch.setattr(cli_module, "launch_player", fake_launch_player, raising=False)
     monkeypatch.setattr(cli_module, "wait_forever", fake_wait_forever, raising=False)
 
-    result = handle_outbound(args)
+    result = handle_foo(args)
 
     captured = capsys.readouterr()
 
@@ -534,7 +541,7 @@ def test_handle_outbound_prints_preview_url_when_open_browser_requested_but_laun
     assert server.server_close_called is True
 
 
-def test_handle_inbound_runs_pipeline_and_prints_session_report(tmp_path, monkeypatch, capsys):
+def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -586,14 +593,14 @@ def test_handle_inbound_runs_pipeline_and_prints_session_report(tmp_path, monkey
         ]
     )
 
-    result = cli_module.handle_inbound(args)
+    result = cli_module.handle_bar(args)
     captured = capsys.readouterr()
 
     assert result == 0
-    assert "inbound: starting decode for 2 video(s)" in captured.out
-    assert "inbound: reading video 1/2:" in captured.out
-    assert "inbound: reassembling archive from" in captured.out
-    assert "inbound: complete, restored directory:" in captured.out
+    assert "bar: starting decode for 2 video(s)" in captured.out
+    assert "bar: reading video 1/2:" in captured.out
+    assert "bar: reassembling archive from" in captured.out
+    assert "bar: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert f"total extracted frame count: {len(session.packet_sequence)}" in captured.out
     assert f"successfully decoded frame count: {len(session.packet_sequence)}" in captured.out
@@ -604,7 +611,56 @@ def test_handle_inbound_runs_pipeline_and_prints_session_report(tmp_path, monkey
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_handle_inbound_skips_unparseable_frame_without_losing_progress(tmp_path, monkeypatch):
+def test_handle_bar_passes_decode_workers_to_frame_decoder(tmp_path, monkeypatch):
+    from atlasx.bar.frame_decode import FrameDecodeResult
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    video_path = tmp_path / "recording.mp4"
+    frame_tokens = [f"frame-{index}" for index in range(len(session.packet_sequence))]
+    observed_worker_counts: list[int] = []
+
+    real_restore_archive_bytes = cli_module.restore_archive_bytes
+
+    def fake_iter_video_frames(_video_path):
+        yield from frame_tokens
+
+    def fake_iter_decoded_frames(frames, preprocess_frame, decode_qr_payload, *, worker_count):
+        observed_worker_counts.append(worker_count)
+        for frame_number, (_frame, packet_bytes) in enumerate(zip(frames, session.packet_sequence), start=1):
+            yield FrameDecodeResult(frame_number=frame_number, packet_bytes=packet_bytes)
+
+    def fake_restore_archive_bytes(archive_bytes, output_root):
+        return real_restore_archive_bytes(archive_bytes, output_root)
+
+    monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
+    monkeypatch.setattr(cli_module, "iter_decoded_frames", fake_iter_decoded_frames, raising=False)
+    monkeypatch.setattr(cli_module, "restore_archive_bytes", fake_restore_archive_bytes, raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bar",
+            str(video_path),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+            "--decode-workers",
+            "3",
+        ]
+    )
+
+    result = cli_module.handle_bar(args)
+
+    assert result == 0
+    assert observed_worker_counts == [3]
+
+
+def test_handle_bar_skips_unparseable_frame_without_losing_progress(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -640,7 +696,7 @@ def test_handle_inbound_skips_unparseable_frame_without_losing_progress(tmp_path
         ]
     )
 
-    result = cli_module.handle_inbound(args)
+    result = cli_module.handle_bar(args)
 
     restored_dirs = [
         path
@@ -652,7 +708,7 @@ def test_handle_inbound_skips_unparseable_frame_without_losing_progress(tmp_path
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
+def test_handle_bar_restores_archive_when_first_manifest_frame_is_missing(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_text("hello", encoding="utf-8")
@@ -686,7 +742,7 @@ def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tm
         ]
     )
 
-    result = cli_module.handle_inbound(args)
+    result = cli_module.handle_bar(args)
 
     restored_dirs = [
         path
@@ -698,7 +754,7 @@ def test_handle_inbound_restores_archive_when_first_manifest_frame_is_missing(tm
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_handle_inbound_reports_missing_chunk_indexes(tmp_path, monkeypatch):
+def test_handle_bar_reports_missing_chunk_indexes(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_bytes(b"x" * 4096)
@@ -738,10 +794,10 @@ def test_handle_inbound_reports_missing_chunk_indexes(tmp_path, monkeypatch):
     )
 
     with pytest.raises(ValueError, match=r"missing required chunks: \[\d+\]"):
-        cli_module.handle_inbound(args)
+        cli_module.handle_bar(args)
 
 
-def test_handle_inbound_resumes_from_saved_progress_after_missing_chunk(tmp_path, monkeypatch):
+def test_handle_bar_resumes_from_saved_progress_after_missing_chunk(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_bytes(b"x" * 4096)
@@ -778,7 +834,7 @@ def test_handle_inbound_resumes_from_saved_progress_after_missing_chunk(tmp_path
                 str(output_root),
             ]
         )
-        return cli_module.handle_inbound(args)
+        return cli_module.handle_bar(args)
 
     first_run_packets = [
         packet
@@ -826,7 +882,7 @@ def test_session_report_includes_required_summary_fields():
     assert "restore: 0.456s" in report
 
 
-def test_player_server_defaults_to_outbound_port():
+def test_player_server_defaults_to_foo_port():
     assert inspect.signature(create_player_app).parameters["port"].default == DEFAULT_PLAYER_PORT
 
 
@@ -886,14 +942,14 @@ def test_main_requires_a_subcommand():
     assert excinfo.value.code != 0
 
 
-def test_main_accepts_inbound_password_after_videos(monkeypatch):
+def test_main_accepts_bar_password_after_videos(monkeypatch):
     captured_args = []
 
-    def fake_handle_inbound(args):
+    def fake_handle_bar(args):
         captured_args.append(args)
         return 0
 
-    monkeypatch.setattr(cli_module, "handle_inbound", fake_handle_inbound, raising=False)
+    monkeypatch.setattr(cli_module, "handle_bar", fake_handle_bar, raising=False)
 
     result = main(["bar", "IMG_7595.MOV", "--password", "secret"])
 

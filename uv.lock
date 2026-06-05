@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-inbound = [
+bar = [
     { name = "opencv-python" },
 ]
 
@@ -30,11 +30,11 @@ inbound = [
 requires-dist = [
     { name = "cryptography" },
     { name = "numpy" },
-    { name = "opencv-python", marker = "extra == 'inbound'" },
+    { name = "opencv-python", marker = "extra == 'bar'" },
     { name = "pillow" },
     { name = "qrcode", extras = ["pil"] },
 ]
-provides-extras = ["inbound"]
+provides-extras = ["bar"]
 
 [[package]]
 name = "cffi"

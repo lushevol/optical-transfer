@@ -9,8 +9,8 @@ from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from atlasx.config import DEFAULT_PLAYER_HOST, DEFAULT_PLAYER_PORT, DEFAULT_PLAYER_ROOT
-from atlasx.outbound.qr_payloads import encode_payload_data_url, required_canvas_size
-from atlasx.outbound.session import SessionPayloadSet
+from atlasx.foo.qr_payloads import encode_payload_data_url, required_canvas_size
+from atlasx.foo.session import SessionPayloadSet
 
 
 FALLBACK_PLAYER_ASSETS = {
@@ -26,7 +26,7 @@ FALLBACK_PLAYER_ASSETS = {
     <main class=\"player-shell\">
       <section class=\"player-card\">
         <p class=\"eyebrow\">AtlasX</p>
-        <h1>Outbound preview</h1>
+        <h1>Foo preview</h1>
         <p id=\"status\">Loading packet feed...</p>
         <div class=\"frame-shell\">
           <img id=\"frame\" alt=\"Current QR frame\" />

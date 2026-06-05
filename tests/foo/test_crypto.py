@@ -5,8 +5,8 @@ from dataclasses import FrozenInstanceError
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from atlasx.outbound.chunker import Chunk
-from atlasx.outbound.crypto import (
+from atlasx.foo.chunker import Chunk
+from atlasx.foo.crypto import (
     ChunkCryptoSession,
     decrypt_chunk,
     encrypt_chunk,
@@ -58,7 +58,7 @@ def test_encrypt_chunk_rejects_tampered_ciphertext() -> None:
 
 
 def test_encrypt_chunk_reuses_session_key_within_explicit_session(monkeypatch) -> None:
-    import atlasx.outbound.crypto as crypto
+    import atlasx.foo.crypto as crypto
 
     calls = 0
     original_derive_key = crypto._derive_key
@@ -101,7 +101,7 @@ def test_encrypt_chunk_reuses_session_key_within_explicit_session(monkeypatch) -
 
 
 def test_chunk_crypto_session_clear_forces_rederivation(monkeypatch) -> None:
-    import atlasx.outbound.crypto as crypto
+    import atlasx.foo.crypto as crypto
 
     calls = 0
     original_derive_key = crypto._derive_key

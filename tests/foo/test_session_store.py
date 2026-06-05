@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from atlasx.outbound.session import build_session_payloads, filter_session_payloads
-from atlasx.outbound.session_store import load_session_bundle, save_session_bundle, session_bundle_path
+from atlasx.foo.session import build_session_payloads, filter_session_payloads
+from atlasx.foo.session_store import load_session_bundle, save_session_bundle, session_bundle_path
 
 
 def test_save_and_load_session_bundle_preserves_playback_packets(tmp_path: Path) -> None:
@@ -31,7 +31,7 @@ def test_load_session_bundle_requires_existing_bundle(tmp_path: Path) -> None:
     source_dir = tmp_path / "source"
     source_dir.mkdir()
 
-    with pytest.raises(ValueError, match="full outbound run"):
+    with pytest.raises(ValueError, match="full foo run"):
         load_session_bundle(source_dir)
 
 

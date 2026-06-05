@@ -31,7 +31,7 @@ def encode_payload_image(payload: bytes, *, canvas_size: Optional[int] = None) -
 
 
 def decode_payload_image(image: Image.Image) -> bytes:
-    from atlasx.inbound.qr_decode import decode_qr_image
+    from atlasx.bar.qr_decode import decode_qr_image
 
     decoded_text = decode_qr_image(image)
     if decoded_text is None:

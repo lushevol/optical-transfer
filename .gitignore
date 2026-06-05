@@ -1,9 +1,9 @@
 __pycache__/
 .pytest_cache/
 .venv/
-.venv-outbound/
-.venv-inbound/
-.atlasx-outbound/
+.venv-foo/
+.venv-bar/
+.atlasx-foo/
 dist/
 build/
 *.egg-info/

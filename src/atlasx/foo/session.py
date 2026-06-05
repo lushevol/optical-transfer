@@ -11,11 +11,11 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from atlasx.protocol.header import PacketHeader
 from atlasx.protocol.manifest_types import Manifest
 from atlasx.protocol.constants import PROTOCOL_HEADER_VERSION, PROTOCOL_KDF_SALT_SIZE
-from atlasx.outbound.archive import ArchiveResult, archive_directory
-from atlasx.outbound.chunker import chunk_bytes
-from atlasx.outbound.crypto import ChunkCryptoSession
-from atlasx.outbound.manifest import build_manifest, manifest_to_json_bytes
-from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, build_data_packet
+from atlasx.foo.archive import ArchiveResult, archive_directory
+from atlasx.foo.chunker import chunk_bytes
+from atlasx.foo.crypto import ChunkCryptoSession
+from atlasx.foo.manifest import build_manifest, manifest_to_json_bytes
+from atlasx.foo.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, build_data_packet
 
 
 _AEAD_NONCE_SIZE = 12

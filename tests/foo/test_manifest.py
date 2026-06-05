@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from atlasx.outbound.archive import archive_directory
-from atlasx.outbound.manifest import (
+from atlasx.foo.archive import archive_directory
+from atlasx.foo.manifest import (
     build_manifest,
     manifest_from_json_bytes,
     manifest_to_json_bytes,

@@ -5,13 +5,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from atlasx.outbound.archive import ArchiveResult
-from atlasx.outbound.crypto import ChunkCryptoSession
-from atlasx.outbound.session import SessionPayloadSet
+from atlasx.foo.archive import ArchiveResult
+from atlasx.foo.crypto import ChunkCryptoSession
+from atlasx.foo.session import SessionPayloadSet
 from atlasx.protocol.manifest_types import Manifest
 
 
-_STORE_DIR_NAME = ".atlasx-outbound"
+_STORE_DIR_NAME = ".atlasx-foo"
 _BUNDLE_FILE_NAME = "session.json"
 
 
@@ -33,8 +33,8 @@ def load_session_bundle(source_dir: Path) -> SessionPayloadSet:
     path = session_bundle_path(source_dir)
     if not path.is_file():
         raise ValueError(
-            "outbound missing-chunk playback requires a saved session bundle; "
-            "run a full outbound run first"
+            "foo missing-chunk playback requires a saved session bundle; "
+            "run a full foo run first"
         )
 
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -61,7 +61,7 @@ def _bundle_payload(payloads: SessionPayloadSet) -> dict[str, Any]:
 
 def _session_from_bundle(payload: dict[str, Any], *, bundle_path: Path) -> SessionPayloadSet:
     if payload.get("version") != 1:
-        raise ValueError("unsupported outbound session bundle version")
+        raise ValueError("unsupported foo session bundle version")
 
     manifest = Manifest(**payload["manifest"])
     archive_payload = payload["archive_result"]
@@ -75,7 +75,7 @@ def _session_from_bundle(payload: dict[str, Any], *, bundle_path: Path) -> Sessi
     data_packets = [bytes.fromhex(packet) for packet in payload["data_packets"]]
     total_chunks = int(payload["total_chunks"])
     if len(data_packets) != total_chunks:
-        raise ValueError("outbound session bundle data packet count does not match total chunks")
+        raise ValueError("foo session bundle data packet count does not match total chunks")
 
     return SessionPayloadSet(
         session_id=bytes.fromhex(payload["session_id"]),

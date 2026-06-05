@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from atlasx.inbound.collector import VerifiedChunk
+from atlasx.bar.collector import VerifiedChunk
 
 
 def reassemble_archive(chunks: List[VerifiedChunk], expected_total: int) -> bytes:

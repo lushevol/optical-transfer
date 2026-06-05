@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_CHUNK_SIZE = 2048
+DEFAULT_CHUNK_SIZE = 256
 DEFAULT_FRAME_INTERVAL_MS = 600
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 8765
@@ -12,7 +12,7 @@ DEFAULT_PLAYER_ROOT = Path(__file__).resolve().parents[2] / "web" / "player"
 
 
 @dataclass(frozen=True)
-class OutboundConfig:
+class FooConfig:
     source_dir: Path
     password: str
     chunk_size: int = DEFAULT_CHUNK_SIZE

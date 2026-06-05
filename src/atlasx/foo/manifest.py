@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict
 
 from atlasx.protocol.manifest_types import Manifest
-from atlasx.outbound.archive import ArchiveResult
+from atlasx.foo.archive import ArchiveResult
 
 
 DEFAULT_AEAD_ALGORITHM_ID = "aes-256-gcm"

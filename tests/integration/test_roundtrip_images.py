@@ -13,13 +13,13 @@ from PIL import Image
 from atlasx.protocol.constants import PROTOCOL_HEADER_SIZE
 from atlasx.protocol.header import decode_header
 import atlasx.cli as cli_module
-from atlasx.inbound.preprocess import preprocess_frame
-from atlasx.inbound import qr_decode as qr_decode_module
-from atlasx.inbound.qr_decode import decode_qr_payload
-from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
-from atlasx.outbound.player_server import build_player_payload
-from atlasx.outbound.qr_payloads import decode_payload_image, encode_payload_image
-from atlasx.outbound.session import build_session_payloads
+from atlasx.bar.preprocess import preprocess_frame
+from atlasx.bar import qr_decode as qr_decode_module
+from atlasx.bar.qr_decode import decode_qr_payload
+from atlasx.foo.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST
+from atlasx.foo.player_server import build_player_payload
+from atlasx.foo.qr_payloads import decode_payload_image, encode_payload_image
+from atlasx.foo.session import build_session_payloads
 
 
 def test_player_payload_exposes_fixed_size_frame_sequence(tmp_path: Path) -> None:
@@ -48,7 +48,7 @@ def test_player_payload_exposes_fixed_size_frame_sequence(tmp_path: Path) -> Non
     assert frame_size[1] % 2 == 0
 
 
-def test_inbound_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_bar_command_restores_archive_from_synthetic_frames(tmp_path: Path, monkeypatch, capsys) -> None:
     source_dir = tmp_path / "payload"
     source_dir.mkdir()
     (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
@@ -84,7 +84,7 @@ def test_inbound_command_restores_archive_from_synthetic_frames(tmp_path: Path, 
         ]
     )
 
-    result = cli_module.handle_inbound(args)
+    result = cli_module.handle_bar(args)
     captured = capsys.readouterr()
 
     restored_root = tmp_path / "restored"
@@ -95,10 +95,10 @@ def test_inbound_command_restores_archive_from_synthetic_frames(tmp_path: Path, 
     ]
 
     assert result == 0
-    assert "inbound: starting decode for 2 video(s)" in captured.out
-    assert "inbound: reading video 1/2:" in captured.out
-    assert "inbound: reassembling archive from" in captured.out
-    assert "inbound: complete, restored directory:" in captured.out
+    assert "bar: starting decode for 2 video(s)" in captured.out
+    assert "bar: reading video 1/2:" in captured.out
+    assert "bar: reassembling archive from" in captured.out
+    assert "bar: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert "final archive hash result: match" in captured.out
     assert len(restored_dirs) == 1

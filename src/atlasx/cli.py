@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import sys
 import webbrowser
 from contextlib import suppress
@@ -19,17 +20,18 @@ from atlasx.config import (
     DEFAULT_FRAME_INTERVAL_MS,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_PORT,
-    OutboundConfig,
+    FooConfig,
 )
-from atlasx.outbound.crypto import ChunkCryptoSession
-from atlasx.outbound.manifest import manifest_from_json_bytes
-from atlasx.outbound.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, split_data_packet
-from atlasx.outbound.player_server import create_player_app
-from atlasx.outbound.session import build_session_payloads, filter_session_payloads
-from atlasx.outbound.session_store import load_session_bundle, save_session_bundle
-from atlasx.inbound.restore import restore_archive_bytes as _default_restore_archive_bytes
+from atlasx.foo.crypto import ChunkCryptoSession
+from atlasx.foo.manifest import manifest_from_json_bytes
+from atlasx.foo.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, split_data_packet
+from atlasx.foo.player_server import create_player_app
+from atlasx.foo.session import build_session_payloads, filter_session_payloads
+from atlasx.foo.session_store import load_session_bundle, save_session_bundle
+from atlasx.bar.restore import restore_archive_bytes as _default_restore_archive_bytes
 
 iter_video_frames = None
+iter_decoded_frames = None
 preprocess_frame = None
 decode_qr_payload = None
 reassemble_archive = None
@@ -37,9 +39,9 @@ build_session_report = None
 restore_archive_bytes = _default_restore_archive_bytes
 
 
-def build_outbound_config(args: argparse.Namespace) -> OutboundConfig:
+def build_foo_config(args: argparse.Namespace) -> FooConfig:
     player_host = _validate_player_host(args.player_host)
-    return OutboundConfig(
+    return FooConfig(
         source_dir=Path(args.source),
         password=args.password,
         chunk_size=args.chunk_size,
@@ -70,7 +72,7 @@ def _validate_player_host(host: str) -> str:
     except ValueError:
         return host
     if parsed_host.version == 6:
-        raise ValueError("IPv6 player hosts are not supported by the outbound preview server")
+        raise ValueError("IPv6 player hosts are not supported by the foo preview server")
     return host
 
 
@@ -106,13 +108,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlasx")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    _add_outbound_arguments(subparsers.add_parser("foo"))
-    _add_inbound_arguments(subparsers.add_parser("bar"))
+    _add_foo_arguments(subparsers.add_parser("foo"))
+    _add_bar_arguments(subparsers.add_parser("bar"))
 
     return parser
 
 
-def _add_outbound_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_foo_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", default=".")
     parser.add_argument("--password", default="")
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
@@ -123,14 +125,33 @@ def _add_outbound_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--missing-chunks")
 
 
-def _add_inbound_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_bar_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("videos", nargs="+")
     parser.add_argument("--password", default="")
     parser.add_argument("--output-root", default="restored")
+    parser.add_argument(
+        "--decode-workers",
+        type=_positive_int,
+        default=default_decode_worker_count(),
+    )
 
 
-def handle_outbound(args: argparse.Namespace) -> int:
-    config = build_outbound_config(args)
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def default_decode_worker_count() -> int:
+    return max(2, min(os.cpu_count() or 2, 8))
+
+
+def handle_foo(args: argparse.Namespace) -> int:
+    config = build_foo_config(args)
     if args.missing_chunks is None:
         payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
         save_session_bundle(config.source_dir, payloads)
@@ -178,43 +199,47 @@ def parse_missing_chunk_indexes(value: str) -> list[int]:
     return sorted(indexes)
 
 
-def handle_inbound(args: argparse.Namespace) -> int:
-    from atlasx.inbound.collector import PacketCollector, VerifiedChunk
-    from atlasx.inbound.progress import ProgressStore
-    from atlasx.inbound.report import SessionStats
+def handle_bar(args: argparse.Namespace) -> int:
+    from atlasx.bar.collector import PacketCollector, VerifiedChunk
+    from atlasx.bar.progress import ProgressStore
+    from atlasx.bar.report import SessionStats
 
     iter_video_frames_fn = iter_video_frames
     if iter_video_frames_fn is None:
-        from atlasx.inbound.ffmpeg_frames import iter_video_frames as iter_video_frames_fn
+        from atlasx.bar.ffmpeg_frames import iter_video_frames as iter_video_frames_fn
+
+    iter_decoded_frames_fn = iter_decoded_frames
+    if iter_decoded_frames_fn is None:
+        from atlasx.bar.frame_decode import iter_decoded_frames as iter_decoded_frames_fn
 
     preprocess_frame_fn = preprocess_frame
     if preprocess_frame_fn is None:
-        from atlasx.inbound.preprocess import preprocess_frame as preprocess_frame_fn
+        from atlasx.bar.preprocess import preprocess_frame as preprocess_frame_fn
 
     decode_qr_payload_fn = decode_qr_payload
     if decode_qr_payload_fn is None:
-        from atlasx.inbound.qr_decode import decode_qr_payload as decode_qr_payload_fn
+        from atlasx.bar.qr_decode import decode_qr_payload as decode_qr_payload_fn
 
     reassemble_archive_fn = reassemble_archive
     if reassemble_archive_fn is None:
-        from atlasx.inbound.reassemble import reassemble_archive as reassemble_archive_fn
+        from atlasx.bar.reassemble import reassemble_archive as reassemble_archive_fn
 
     build_session_report_fn = build_session_report
     if build_session_report_fn is None:
-        from atlasx.inbound.report import build_session_report as build_session_report_fn
+        from atlasx.bar.report import build_session_report as build_session_report_fn
 
     restore_archive_bytes_fn = restore_archive_bytes
     if restore_archive_bytes_fn is None:
-        from atlasx.inbound.restore import restore_archive_bytes as restore_archive_bytes_fn
+        from atlasx.bar.restore import restore_archive_bytes as restore_archive_bytes_fn
 
     video_paths = [Path(video) for video in args.videos]
     output_root = Path(args.output_root)
-    _inbound_log(f"inbound: starting decode for {len(video_paths)} video(s)")
-    _inbound_log(f"inbound: output root: {output_root}")
+    _bar_log(f"bar: starting decode for {len(video_paths)} video(s)")
+    _bar_log(f"bar: output root: {output_root}")
     if args.password:
-        _inbound_log("inbound: password provided")
+        _bar_log("bar: password provided")
     else:
-        _inbound_log("inbound: no password provided")
+        _bar_log("bar: no password provided")
 
     collector = PacketCollector()
     progress_store = ProgressStore(output_root)
@@ -251,8 +276,8 @@ def handle_inbound(args: argparse.Namespace) -> int:
         if not saved_packets:
             return
 
-        _inbound_log(
-            "inbound: loaded "
+        _bar_log(
+            "bar: loaded "
             f"{len(saved_packets)} saved packet(s) from "
             f"{progress_store.session_path(progress_session_id)}"
         )
@@ -275,27 +300,27 @@ def handle_inbound(args: argparse.Namespace) -> int:
 
         if session_id is None:
             session_id = header.session_id
-            _inbound_log(
-                "inbound: session identified "
+            _bar_log(
+                "bar: session identified "
                 f"({session_id.hex()[:16]}...)"
             )
             load_saved_progress(session_id)
         elif header.session_id != session_id:
-            raise ValueError("inbound inputs contain multiple sessions")
+            raise ValueError("bar inputs contain multiple sessions")
 
         if observed_kdf_salt is None:
             observed_kdf_salt = header.kdf_salt
         elif header.kdf_salt != observed_kdf_salt:
-            raise ValueError("inbound inputs mix incompatible KDF salts")
+            raise ValueError("bar inputs mix incompatible KDF salts")
 
         if expected_total_chunks is None:
             expected_total_chunks = header.total_chunks
         elif header.total_chunks != expected_total_chunks:
-            raise ValueError("inbound inputs mix incompatible chunk totals")
+            raise ValueError("bar inputs mix incompatible chunk totals")
 
         if header.packet_type == PACKET_TYPE_MANIFEST:
-            _inbound_log(
-                "inbound: manifest packet decoded "
+            _bar_log(
+                "bar: manifest packet decoded "
                 f"({stats['raw_packet_count']} raw packet(s) seen)"
             )
             try:
@@ -315,11 +340,11 @@ def handle_inbound(args: argparse.Namespace) -> int:
             if manifest is None:
                 manifest = decoded_manifest
             elif manifest != decoded_manifest:
-                raise ValueError("inbound inputs contain conflicting manifest packets")
+                raise ValueError("bar inputs contain conflicting manifest packets")
             if decoded_manifest.total_chunks != expected_total_chunks:
                 raise ValueError("manifest does not match packet chunk count")
-            _inbound_log(
-                "inbound: manifest validated "
+            _bar_log(
+                "bar: manifest validated "
                 f"({decoded_manifest.total_chunks} total chunk(s))"
             )
             if record_progress:
@@ -358,8 +383,8 @@ def handle_inbound(args: argparse.Namespace) -> int:
                 or total_accepted_chunks % 25 == 0
                 or total_accepted_chunks == expected_total_chunks
             ):
-                _inbound_log(
-                    "inbound: accepted "
+                _bar_log(
+                    "bar: accepted "
                     f"{total_accepted_chunks}/{expected_total_chunks} chunk(s)"
                 )
             return True
@@ -367,32 +392,28 @@ def handle_inbound(args: argparse.Namespace) -> int:
         return False
 
     for video_index, video_path in enumerate(video_paths, start=1):
-        _inbound_log(
-            f"inbound: reading video {video_index}/{len(video_paths)}: {video_path}"
+        _bar_log(
+            f"bar: reading video {video_index}/{len(video_paths)}: {video_path}"
         )
         extract_started = perf_counter()
         decode_started = perf_counter()
         video_frame_count = 0
         video_decoded_count = 0
-        for frame in iter_video_frames_fn(video_path):
+        frame_results = iter_decoded_frames_fn(
+            iter_video_frames_fn(video_path),
+            preprocess_frame_fn,
+            decode_qr_payload_fn,
+            worker_count=args.decode_workers,
+        )
+        for frame_result in frame_results:
             stats["total_extracted_frame_count"] += 1
-            video_frame_count += 1
+            video_frame_count = frame_result.frame_number
 
-            try:
-                processed_frame = preprocess_frame_fn(frame)
-                packet_bytes = decode_qr_payload_fn(processed_frame)
-            except ValueError:
-                if video_frame_count == 1 or video_frame_count % 25 == 0:
-                    _inbound_log(
-                        "inbound: "
-                        f"{video_path.name}: extracted {video_frame_count} frame(s), "
-                        f"decoded {video_decoded_count} QR payload(s)"
-                    )
-                continue
+            packet_bytes = frame_result.packet_bytes
             if packet_bytes is None:
                 if video_frame_count == 1 or video_frame_count % 25 == 0:
-                    _inbound_log(
-                        "inbound: "
+                    _bar_log(
+                        "bar: "
                         f"{video_path.name}: extracted {video_frame_count} frame(s), "
                         f"decoded {video_decoded_count} QR payload(s)"
                     )
@@ -403,8 +424,8 @@ def handle_inbound(args: argparse.Namespace) -> int:
 
             process_packet(packet_bytes, record_progress=True)
             if video_frame_count == 1 or video_frame_count % 25 == 0:
-                _inbound_log(
-                    "inbound: "
+                _bar_log(
+                    "bar: "
                     f"{video_path.name}: extracted {video_frame_count} frame(s), "
                     f"decoded {video_decoded_count} QR payload(s)"
                 )
@@ -413,9 +434,9 @@ def handle_inbound(args: argparse.Namespace) -> int:
 
     if session_id is None or manifest is None or expected_total_chunks is None:
         if session_id is None:
-            raise ValueError("inbound inputs did not include a complete manifest")
+            raise ValueError("bar inputs did not include a complete manifest")
         raise ValueError(
-            "inbound inputs did not include a complete manifest; "
+            "bar inputs did not include a complete manifest; "
             f"progress saved in {progress_store.session_path(session_id)}"
         )
 
@@ -425,12 +446,12 @@ def handle_inbound(args: argparse.Namespace) -> int:
         found_indexes = {chunk.chunk_index for chunk in chunks}
         missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
         raise ValueError(
-            "inbound inputs are missing required chunks: "
+            "bar inputs are missing required chunks: "
             f"{missing_indexes}; progress saved in {progress_store.session_path(session_id)}"
         )
 
-    _inbound_log(
-        "inbound: reassembling archive "
+    _bar_log(
+        "bar: reassembling archive "
         f"from {len(chunks)}/{expected_total_chunks} chunk(s)"
     )
     reassemble_started = perf_counter()
@@ -441,7 +462,7 @@ def handle_inbound(args: argparse.Namespace) -> int:
     if archive_hash != manifest.archive_hash:
         raise ValueError("restored archive hash does not match manifest")
 
-    _inbound_log(f"inbound: restoring archive into {output_root}")
+    _bar_log(f"bar: restoring archive into {output_root}")
     restore_started = perf_counter()
     restored_dir = restore_archive_bytes_fn(archive_bytes, output_root)
     stage_timings["restore"] += perf_counter() - restore_started
@@ -460,7 +481,7 @@ def handle_inbound(args: argparse.Namespace) -> int:
         restored_directory=restored_dir,
     )
     print(build_session_report_fn(session_stats))
-    _inbound_log(f"inbound: complete, restored directory: {restored_dir}")
+    _bar_log(f"bar: complete, restored directory: {restored_dir}")
     return 0
 
 
@@ -517,7 +538,7 @@ def _associated_data(
     )
 
 
-def _inbound_log(message: str) -> None:
+def _bar_log(message: str) -> None:
     print(message, flush=True)
 
 
@@ -529,25 +550,25 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     command, command_args = argv[0], argv[1:]
     if command == "foo":
-        args = _parse_command_args(_build_outbound_command_parser(), command_args)
-        return handle_outbound(args)
+        args = _parse_command_args(_build_foo_command_parser(), command_args)
+        return handle_foo(args)
     if command == "bar":
-        args = _parse_command_args(_build_inbound_command_parser(), command_args)
-        return handle_inbound(args)
+        args = _parse_command_args(_build_bar_command_parser(), command_args)
+        return handle_bar(args)
 
     build_parser().parse_args(argv)  # pragma: no cover
     return 0
 
 
-def _build_outbound_command_parser() -> argparse.ArgumentParser:
+def _build_foo_command_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlasx foo")
-    _add_outbound_arguments(parser)
+    _add_foo_arguments(parser)
     return parser
 
 
-def _build_inbound_command_parser() -> argparse.ArgumentParser:
+def _build_bar_command_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlasx bar")
-    _add_inbound_arguments(parser)
+    _add_bar_arguments(parser)
     return parser
 
 

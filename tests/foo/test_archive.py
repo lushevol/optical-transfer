@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import tarfile
 
-import atlasx.outbound.archive as archive_module
-from atlasx.outbound.archive import archive_directory
+import atlasx.foo.archive as archive_module
+from atlasx.foo.archive import archive_directory
 
 
 def test_archive_directory_creates_tar_gz_with_relative_paths(tmp_path) -> None:
@@ -54,11 +54,11 @@ def test_archive_directory_uses_maximum_gzip_compression_level(tmp_path, monkeyp
     assert seen == {"compresslevel": 9, "mtime": 0}
 
 
-def test_archive_directory_excludes_outbound_session_bundle(tmp_path) -> None:
+def test_archive_directory_excludes_foo_session_bundle(tmp_path) -> None:
     source_dir = tmp_path / "payload"
     source_dir.mkdir()
     (source_dir / "root.txt").write_text("root file\n", encoding="utf-8")
-    cache_dir = source_dir / ".atlasx-outbound"
+    cache_dir = source_dir / ".atlasx-foo"
     cache_dir.mkdir()
     (cache_dir / "session.json").write_text('{"cached":true}', encoding="utf-8")
 
@@ -70,4 +70,4 @@ def test_archive_directory_excludes_outbound_session_bundle(tmp_path) -> None:
         member_names = tar.getnames()
 
     assert "root.txt" in member_names
-    assert ".atlasx-outbound/session.json" not in member_names
+    assert ".atlasx-foo/session.json" not in member_names
