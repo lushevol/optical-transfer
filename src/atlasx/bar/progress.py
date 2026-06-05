@@ -22,6 +22,8 @@ class ProgressStore:
         session_dir = self.session_path(header.session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
 
+        _clean_stale_tmp_files(session_dir)
+
         packet_path = session_dir / _packet_filename(header)
         if packet_path.exists():
             return packet_path
@@ -57,3 +59,8 @@ def _packet_sort_key(path: Path) -> tuple[int, str]:
     if path.name == "manifest.pkt":
         return (0, path.name)
     return (1, path.name)
+
+
+def _clean_stale_tmp_files(directory: Path) -> None:
+    for tmp_path in directory.glob("*.tmp"):
+        tmp_path.unlink(missing_ok=True)

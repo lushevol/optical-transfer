@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 
-_EXCLUDED_DIRECTORY_NAMES = {".atlasx-foo"}
+_EXCLUDED_DIRECTORY_NAMES = {".atlasx-foo", ".atlasx-progress"}
 
 
 @dataclass(frozen=True)

@@ -260,6 +260,6 @@ def _derive_kdf_salt() -> bytes:
 
 
 def _archive_to_temporary_path(source_dir: Path) -> ArchiveResult:
-    with tempfile.NamedTemporaryFile(prefix=f"{source_dir.name}-", suffix=".tar.gz", delete=False, dir=source_dir.parent) as handle:
+    with tempfile.NamedTemporaryFile(prefix=f"{source_dir.name}-", suffix=".tar.gz", delete=False) as handle:
         output_path = Path(handle.name)
     return archive_directory(source_dir, output_path)

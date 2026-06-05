@@ -4,6 +4,7 @@ __pycache__/
 .venv-foo/
 .venv-bar/
 .atlasx-foo/
+restored/
 dist/
 build/
 *.egg-info/
