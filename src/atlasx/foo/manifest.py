@@ -16,10 +16,11 @@ def build_manifest(
     archive_result: ArchiveResult,
     chunk_size: int,
     total_chunks: int,
+    archive_format: str = DEFAULT_ARCHIVE_FORMAT,
 ) -> Manifest:
     return Manifest(
         object_type=DEFAULT_OBJECT_TYPE,
-        archive_format=DEFAULT_ARCHIVE_FORMAT,
+        archive_format=archive_format,
         archive_byte_length=archive_result.archive_byte_length,
         archive_hash=archive_result.archive_hash,
         chunk_size=chunk_size,

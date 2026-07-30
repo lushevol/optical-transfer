@@ -41,6 +41,12 @@ Useful options:
 
 The bar accepts one or more recorded videos, extracts frames with `ffmpeg`, decodes QR payloads, reconstructs the archive, and restores it into a fresh directory under the chosen output root.
 
+New transfers use independently recoverable bundle chunks. If some QR frames are
+missing, bar still restores every complete file it can verify and writes received
+segments of incomplete files under `.atlasx-partial`; saved progress can later be
+completed with a missing-chunk playback. Legacy `tar.gz` sessions remain readable
+but still require their full chunk set.
+
 ```bash
 atlasx bar recording1.mp4 recording2.mp4 --password "secret" --output-root restored
 ```

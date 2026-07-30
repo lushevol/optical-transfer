@@ -551,10 +551,6 @@ def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatc
     video_one = tmp_path / "recording1.mp4"
     video_two = tmp_path / "recording2.mp4"
     frame_tokens = [f"frame-{index}" for index in range(len(session.packet_sequence))]
-    restored_dirs: List[Path] = []
-
-    real_restore_archive_bytes = cli_module.restore_archive_bytes
-
     def fake_iter_video_frames(video_path):
         if Path(video_path) == video_one:
             yield frame_tokens[0]
@@ -570,15 +566,9 @@ def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatc
     def fake_decode_qr_payload(image):
         return next(packet_iter)
 
-    def fake_restore_archive_bytes(archive_bytes, output_root):
-        restored_dir = real_restore_archive_bytes(archive_bytes, output_root)
-        restored_dirs.append(restored_dir)
-        return restored_dir
-
     monkeypatch.setattr(cli_module, "iter_video_frames", fake_iter_video_frames, raising=False)
     monkeypatch.setattr(cli_module, "preprocess_frame", fake_preprocess_frame, raising=False)
     monkeypatch.setattr(cli_module, "decode_qr_payload", fake_decode_qr_payload, raising=False)
-    monkeypatch.setattr(cli_module, "restore_archive_bytes", fake_restore_archive_bytes, raising=False)
 
     parser = build_parser()
     args = parser.parse_args(
@@ -599,7 +589,7 @@ def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatc
     assert result == 0
     assert "bar: starting decode for 2 video(s)" in captured.out
     assert "bar: reading video 1/2:" in captured.out
-    assert "bar: reassembling archive from" in captured.out
+    assert "bar: restoring independent bundle records from" in captured.out
     assert "bar: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert f"total extracted frame count: {len(session.packet_sequence)}" in captured.out
@@ -607,7 +597,12 @@ def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatc
     assert f"raw packet count: {len(session.packet_sequence)}" in captured.out
     assert f"deduplicated valid chunk count: {session.total_chunks}" in captured.out
     assert "final archive hash result: match" in captured.out
-    assert restored_dirs and restored_dirs[0].exists()
+    restored_dirs = [
+        path
+        for path in (tmp_path / "restored").iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
@@ -754,7 +749,61 @@ def test_handle_bar_restores_archive_when_first_manifest_frame_is_missing(tmp_pa
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_handle_bar_reports_missing_chunk_indexes(tmp_path, monkeypatch):
+def test_handle_bar_restores_bundle_when_all_manifest_frames_are_missing(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "message.txt").write_text("hello", encoding="utf-8")
+
+    session = build_session_payloads(source_dir, password="secret", chunk_size=64)
+    packets = [
+        packet
+        for packet in session.packet_sequence
+        if packet != session.manifest_packet
+    ]
+    packet_iter = iter(packets)
+
+    monkeypatch.setattr(
+        cli_module,
+        "iter_video_frames",
+        lambda _video_path: iter(["frame"] * len(packets)),
+        raising=False,
+    )
+    monkeypatch.setattr(cli_module, "preprocess_frame", lambda frame: frame, raising=False)
+    monkeypatch.setattr(
+        cli_module,
+        "decode_qr_payload",
+        lambda _image: next(packet_iter),
+        raising=False,
+    )
+
+    args = build_parser().parse_args(
+        [
+            "bar",
+            str(tmp_path / "recording.mp4"),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    assert cli_module.handle_bar(args) == 0
+    captured = capsys.readouterr()
+    assert "final archive hash result: incomplete" in captured.out
+    restored_dirs = [
+        path
+        for path in (tmp_path / "restored").iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(restored_dirs) == 1
+    assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_handle_bar_partially_restores_when_chunk_is_missing(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "message.txt").write_bytes(b"x" * 4096)
@@ -793,8 +842,18 @@ def test_handle_bar_reports_missing_chunk_indexes(tmp_path, monkeypatch):
         ]
     )
 
-    with pytest.raises(ValueError, match=r"missing required chunks: \[\d+\]"):
-        cli_module.handle_bar(args)
+    assert cli_module.handle_bar(args) == 0
+    captured = capsys.readouterr()
+    assert "partial recovery complete; missing chunk indexes:" in captured.out
+    assert "final archive hash result: incomplete" in captured.out
+    restored_dirs = [
+        path
+        for path in (tmp_path / "restored").iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
+    assert len(restored_dirs) == 1
+    assert not (restored_dirs[0] / "message.txt").exists()
+    assert any((restored_dirs[0] / ".atlasx-partial").rglob("*.part-*"))
 
 
 def test_handle_bar_resumes_from_saved_progress_after_missing_chunk(tmp_path, monkeypatch):
@@ -842,14 +901,15 @@ def test_handle_bar_resumes_from_saved_progress_after_missing_chunk(tmp_path, mo
         if packet != missing_packet
     ]
 
-    with pytest.raises(ValueError, match="progress saved"):
-        run_with_packets(first_run_packets)
+    assert run_with_packets(first_run_packets) == 0
 
     assert run_with_packets([missing_packet]) == 0
 
     restored_dirs = [path for path in output_root.iterdir() if path.is_dir() and not path.name.startswith(".")]
-    assert len(restored_dirs) == 1
-    assert (restored_dirs[0] / "message.txt").read_bytes() == b"x" * 4096
+    assert len(restored_dirs) == 2
+    completed_dirs = [path for path in restored_dirs if (path / "message.txt").exists()]
+    assert len(completed_dirs) == 1
+    assert (completed_dirs[0] / "message.txt").read_bytes() == b"x" * 4096
 
 
 def test_session_report_includes_required_summary_fields():

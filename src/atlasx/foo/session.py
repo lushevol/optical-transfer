@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import tempfile
+import hashlib
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,8 +11,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from atlasx.protocol.header import PacketHeader
 from atlasx.protocol.manifest_types import Manifest
 from atlasx.protocol.constants import PROTOCOL_HEADER_VERSION, PROTOCOL_KDF_SALT_SIZE
-from atlasx.foo.archive import ArchiveResult, archive_directory
-from atlasx.foo.chunker import chunk_bytes
+from atlasx.foo.archive import ArchiveResult
+from atlasx.foo.bundle import BUNDLE_FORMAT, build_bundle_chunks, bundle_stream_bytes
 from atlasx.foo.crypto import ChunkCryptoSession
 from atlasx.foo.manifest import build_manifest, manifest_to_json_bytes
 from atlasx.foo.packets import PACKET_TYPE_DATA, PACKET_TYPE_MANIFEST, build_data_packet
@@ -90,36 +90,44 @@ def build_session_payloads(source_dir: Path, password: str, chunk_size: int) -> 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
 
-    archive_result = _archive_to_temporary_path(Path(source_dir))
-    archive_bytes = archive_result.archive_path.read_bytes()
-    try:
-        chunks = chunk_bytes(archive_bytes, chunk_size)
-        manifest = build_manifest(archive_result, chunk_size=chunk_size, total_chunks=len(chunks))
+    source_dir = Path(source_dir)
+    chunks = build_bundle_chunks(source_dir, chunk_size)
+    archive_bytes = bundle_stream_bytes(chunk.data for chunk in chunks)
+    archive_result = ArchiveResult(
+        archive_path=source_dir.parent / f".{source_dir.name}-{secrets.token_hex(8)}.atlasx-bundle",
+        archive_byte_length=len(archive_bytes),
+        archive_hash=hashlib.sha256(archive_bytes).hexdigest(),
+        original_directory_name=source_dir.name,
+    )
+    manifest = build_manifest(
+        archive_result,
+        chunk_size=chunk_size,
+        total_chunks=len(chunks),
+        archive_format=BUNDLE_FORMAT,
+    )
 
-        session_id = _derive_session_id()
-        kdf_salt = _derive_kdf_salt()
-        crypto_session = ChunkCryptoSession(password=password, salt=kdf_salt)
+    session_id = _derive_session_id()
+    kdf_salt = _derive_kdf_salt()
+    crypto_session = ChunkCryptoSession(password=password, salt=kdf_salt)
 
-        manifest_packet = _build_manifest_packet(
-            manifest=manifest,
+    manifest_packet = _build_manifest_packet(
+        manifest=manifest,
+        crypto_session=crypto_session,
+        session_id=session_id,
+        total_chunks=len(chunks),
+        kdf_salt=kdf_salt,
+    )
+    data_packets = [
+        _build_data_packet(
+            chunk_index=chunk.chunk_index,
+            chunk_data=chunk.data,
             crypto_session=crypto_session,
             session_id=session_id,
             total_chunks=len(chunks),
             kdf_salt=kdf_salt,
         )
-        data_packets = [
-            _build_data_packet(
-                chunk_index=chunk.chunk_index,
-                chunk_data=chunk.data,
-                crypto_session=crypto_session,
-                session_id=session_id,
-                total_chunks=len(chunks),
-                kdf_salt=kdf_salt,
-            )
-            for chunk in chunks
-        ]
-    finally:
-        archive_result.archive_path.unlink(missing_ok=True)
+        for chunk in chunks
+    ]
 
     return SessionPayloadSet(
         session_id=session_id,
@@ -257,9 +265,3 @@ def _derive_session_id() -> bytes:
 
 def _derive_kdf_salt() -> bytes:
     return secrets.token_bytes(PROTOCOL_KDF_SALT_SIZE)
-
-
-def _archive_to_temporary_path(source_dir: Path) -> ArchiveResult:
-    with tempfile.NamedTemporaryFile(prefix=f"{source_dir.name}-", suffix=".tar.gz", delete=False, dir=source_dir.parent) as handle:
-        output_path = Path(handle.name)
-    return archive_directory(source_dir, output_path)

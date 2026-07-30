@@ -432,23 +432,91 @@ def handle_bar(args: argparse.Namespace) -> int:
         stage_timings["extract_frames"] += perf_counter() - extract_started
         stage_timings["preprocess_decode"] += perf_counter() - decode_started
 
-    if session_id is None or manifest is None or expected_total_chunks is None:
+    if session_id is None or expected_total_chunks is None:
         if session_id is None:
             raise ValueError("bar inputs did not include a complete manifest")
+
+    chunks = collector.chunks(session_id)
+    from atlasx.foo.bundle import (
+        BUNDLE_FORMAT,
+        bundle_stream_bytes,
+        is_bundle_chunk,
+        restore_bundle_chunks,
+    )
+
+    bundle_format = (
+        manifest is not None and manifest.archive_format == BUNDLE_FORMAT
+    ) or (
+        manifest is None
+        and bool(chunks)
+        and all(is_bundle_chunk(chunk.data) for chunk in chunks)
+    )
+    if manifest is None and not bundle_format:
         raise ValueError(
             "bar inputs did not include a complete manifest; "
             f"progress saved in {progress_store.session_path(session_id)}"
         )
+    if bundle_format and not all(is_bundle_chunk(chunk.data) for chunk in chunks):
+        raise ValueError("bundle session contains an invalid data chunk")
 
-    chunks = collector.chunks(session_id)
     stats["missing_chunk_count"] = max(expected_total_chunks - len(chunks), 0)
-    if stats["missing_chunk_count"]:
-        found_indexes = {chunk.chunk_index for chunk in chunks}
-        missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
+    found_indexes = {chunk.chunk_index for chunk in chunks}
+    missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
+    if stats["missing_chunk_count"] and not bundle_format:
         raise ValueError(
             "bar inputs are missing required chunks: "
             f"{missing_indexes}; progress saved in {progress_store.session_path(session_id)}"
         )
+
+    if bundle_format:
+        completeness = (
+            f"{len(chunks)}/{expected_total_chunks} chunk(s)"
+            if expected_total_chunks
+            else f"{len(chunks)} chunk(s)"
+        )
+        _bar_log(f"bar: restoring independent bundle records from {completeness}")
+        restore_started = perf_counter()
+        restore_result = restore_bundle_chunks(
+            [chunk.data for chunk in chunks],
+            output_root,
+        )
+        stage_timings["restore"] += perf_counter() - restore_started
+
+        final_hash_result = "incomplete"
+        if not missing_indexes and manifest is not None:
+            bundle_bytes = bundle_stream_bytes(chunk.data for chunk in chunks)
+            if hashlib.sha256(bundle_bytes).hexdigest() != manifest.archive_hash:
+                raise ValueError("restored bundle hash does not match manifest")
+            final_hash_result = "match"
+            progress_store.clear_session(session_id)
+
+        session_stats = SessionStats(
+            input_video_count=stats["input_video_count"],
+            total_extracted_frame_count=stats["total_extracted_frame_count"],
+            successfully_decoded_frame_count=stats["successfully_decoded_frame_count"],
+            raw_packet_count=stats["raw_packet_count"],
+            deduplicated_valid_chunk_count=stats["deduplicated_valid_chunk_count"],
+            missing_chunk_count=stats["missing_chunk_count"],
+            authentication_failure_count=stats["authentication_failure_count"],
+            final_archive_hash_result=final_hash_result,
+            stage_timings=stage_timings,
+            restored_directory=restore_result.restored_directory,
+        )
+        print(build_session_report_fn(session_stats))
+        if missing_indexes:
+            _bar_log(
+                "bar: partial recovery complete; "
+                f"missing chunk indexes: {missing_indexes}; "
+                f"restored {restore_result.restored_file_count} complete file(s) and "
+                f"{restore_result.partial_fragment_count} partial fragment(s); "
+                f"progress saved in {progress_store.session_path(session_id)}"
+            )
+        else:
+            _bar_log(
+                "bar: complete, restored directory: "
+                f"{restore_result.restored_directory}"
+            )
+        return 0
 
     _bar_log(
         "bar: reassembling archive "

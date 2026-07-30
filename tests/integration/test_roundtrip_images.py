@@ -97,7 +97,7 @@ def test_bar_command_restores_archive_from_synthetic_frames(tmp_path: Path, monk
     assert result == 0
     assert "bar: starting decode for 2 video(s)" in captured.out
     assert "bar: reading video 1/2:" in captured.out
-    assert "bar: reassembling archive from" in captured.out
+    assert "bar: restoring independent bundle records from" in captured.out
     assert "bar: complete, restored directory:" in captured.out
     assert "input video count: 2" in captured.out
     assert "final archive hash result: match" in captured.out
