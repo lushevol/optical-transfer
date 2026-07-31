@@ -167,6 +167,10 @@ per-stage timing:
 Interpretation:
 
 - `raw packet count` includes all valid packet decodes, including repeated packets
+- New bundle-format sessions can produce a partial restore when chunks are missing.
+  Complete verified files are restored normally, while received segments belonging
+  to incomplete files are kept under `.atlasx-partial`. Bar retains session progress
+  so the missing chunk indexes can be replayed later.
 - `deduplicated valid chunk count` counts unique data chunks only
 - `missing chunk count: 0` plus `final archive hash result: match` indicates a successful recovery
 

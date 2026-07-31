@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from atlasx.protocol.header import PacketHeader, encode_header
+from atlasx.foo.bundle import is_bundle_chunk
 from atlasx.foo.packets import build_data_packet, split_data_packet
 from atlasx.foo.session import build_session_payloads
 
@@ -73,7 +74,19 @@ def test_build_session_payloads_removes_temporary_archive(tmp_path) -> None:
     session = build_session_payloads(source_dir, password="correct horse battery staple", chunk_size=64)
 
     assert session.archive_result.archive_path.exists() is False
-    assert session.archive_bytes.startswith(b"\x1f\x8b")
+    assert session.manifest.archive_format == "atlasx-bundle-v1"
+    assert all(is_bundle_chunk(chunk) for chunk in _bundle_chunks(session.archive_bytes))
+
+
+def _bundle_chunks(bundle_bytes: bytes) -> list[bytes]:
+    chunks = []
+    offset = 0
+    while offset < len(bundle_bytes):
+        chunk_length = int.from_bytes(bundle_bytes[offset : offset + 4], "big")
+        offset += 4
+        chunks.append(bundle_bytes[offset : offset + chunk_length])
+        offset += chunk_length
+    return chunks
 
 
 def test_packet_sequence_repeats_data_packets_for_capture_resilience(tmp_path) -> None:

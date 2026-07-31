@@ -123,6 +123,10 @@ def _add_foo_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--player-port", type=int, default=DEFAULT_PLAYER_PORT)
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--missing-chunks")
+    parser.add_argument(
+        "--session-id",
+        help="expected transfer session ID for missing-chunk playback",
+    )
 
 
 def _add_bar_arguments(parser: argparse.ArgumentParser) -> None:
@@ -153,12 +157,29 @@ def default_decode_worker_count() -> int:
 def handle_foo(args: argparse.Namespace) -> int:
     config = build_foo_config(args)
     if args.missing_chunks is None:
+        if args.session_id is not None:
+            raise ValueError("--session-id can only be used with --missing-chunks")
         payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
         save_session_bundle(config.source_dir, payloads)
     else:
+        if args.session_id is None:
+            raise ValueError(
+                "foo missing-chunk playback requires --session-id from the bar "
+                "recovery request"
+            )
         missing_indexes = parse_missing_chunk_indexes(args.missing_chunks)
+        expected_session_id = parse_session_id(args.session_id)
+        saved_payloads = load_session_bundle(config.source_dir)
+        if saved_payloads.session_id != expected_session_id:
+            raise ValueError(
+                "saved foo session does not match the bar recovery request: "
+                f"expected {expected_session_id.hex()}, "
+                f"found {saved_payloads.session_id.hex()}; "
+                "use the same --source directory and saved .atlasx-foo bundle "
+                "as the original playback"
+            )
         payloads = filter_session_payloads(
-            load_session_bundle(config.source_dir),
+            saved_payloads,
             missing_indexes,
         )
     server = create_player_app(
@@ -197,6 +218,17 @@ def parse_missing_chunk_indexes(value: str) -> list[int]:
     if len(set(indexes)) != len(indexes):
         raise ValueError("missing chunk indexes must not contain duplicates")
     return sorted(indexes)
+
+
+def parse_session_id(value: str) -> bytes:
+    normalized = value.strip().lower()
+    try:
+        session_id = bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise ValueError("session ID must be hexadecimal") from exc
+    if len(session_id) != 16:
+        raise ValueError("session ID must contain exactly 32 hexadecimal characters")
+    return session_id
 
 
 def handle_bar(args: argparse.Namespace) -> int:
@@ -306,7 +338,14 @@ def handle_bar(args: argparse.Namespace) -> int:
             )
             load_saved_progress(session_id)
         elif header.session_id != session_id:
-            raise ValueError("bar inputs contain multiple sessions")
+            expected_description = session_id.hex()
+            if expected_total_chunks is not None:
+                expected_description += f" ({expected_total_chunks} chunks)"
+            raise ValueError(
+                "bar inputs contain different sessions and cannot be merged: "
+                f"expected {expected_description}, "
+                f"found {header.session_id.hex()} ({header.total_chunks} chunks)"
+            )
 
         if observed_kdf_salt is None:
             observed_kdf_salt = header.kdf_salt
@@ -432,23 +471,97 @@ def handle_bar(args: argparse.Namespace) -> int:
         stage_timings["extract_frames"] += perf_counter() - extract_started
         stage_timings["preprocess_decode"] += perf_counter() - decode_started
 
-    if session_id is None or manifest is None or expected_total_chunks is None:
+    if session_id is None or expected_total_chunks is None:
         if session_id is None:
             raise ValueError("bar inputs did not include a complete manifest")
+
+    chunks = collector.chunks(session_id)
+    from atlasx.foo.bundle import (
+        BUNDLE_FORMAT,
+        bundle_stream_bytes,
+        is_bundle_chunk,
+        restore_bundle_chunks,
+    )
+
+    bundle_format = (
+        manifest is not None and manifest.archive_format == BUNDLE_FORMAT
+    ) or (
+        manifest is None
+        and bool(chunks)
+        and all(is_bundle_chunk(chunk.data) for chunk in chunks)
+    )
+    if manifest is None and not bundle_format:
         raise ValueError(
             "bar inputs did not include a complete manifest; "
             f"progress saved in {progress_store.session_path(session_id)}"
         )
+    if bundle_format and not all(is_bundle_chunk(chunk.data) for chunk in chunks):
+        raise ValueError("bundle session contains an invalid data chunk")
 
-    chunks = collector.chunks(session_id)
     stats["missing_chunk_count"] = max(expected_total_chunks - len(chunks), 0)
-    if stats["missing_chunk_count"]:
-        found_indexes = {chunk.chunk_index for chunk in chunks}
-        missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
+    found_indexes = {chunk.chunk_index for chunk in chunks}
+    missing_indexes = sorted(set(range(expected_total_chunks)) - found_indexes)
+    if stats["missing_chunk_count"] and not bundle_format:
         raise ValueError(
             "bar inputs are missing required chunks: "
             f"{missing_indexes}; progress saved in {progress_store.session_path(session_id)}"
         )
+
+    if bundle_format:
+        completeness = (
+            f"{len(chunks)}/{expected_total_chunks} chunk(s)"
+            if expected_total_chunks
+            else f"{len(chunks)} chunk(s)"
+        )
+        _bar_log(f"bar: restoring independent bundle records from {completeness}")
+        restore_started = perf_counter()
+        restore_result = restore_bundle_chunks(
+            [chunk.data for chunk in chunks],
+            output_root,
+        )
+        stage_timings["restore"] += perf_counter() - restore_started
+
+        final_hash_result = "incomplete"
+        if not missing_indexes and manifest is not None:
+            bundle_bytes = bundle_stream_bytes(chunk.data for chunk in chunks)
+            if hashlib.sha256(bundle_bytes).hexdigest() != manifest.archive_hash:
+                raise ValueError("restored bundle hash does not match manifest")
+            final_hash_result = "match"
+            progress_store.clear_session(session_id)
+
+        session_stats = SessionStats(
+            input_video_count=stats["input_video_count"],
+            total_extracted_frame_count=stats["total_extracted_frame_count"],
+            successfully_decoded_frame_count=stats["successfully_decoded_frame_count"],
+            raw_packet_count=stats["raw_packet_count"],
+            deduplicated_valid_chunk_count=stats["deduplicated_valid_chunk_count"],
+            missing_chunk_count=stats["missing_chunk_count"],
+            authentication_failure_count=stats["authentication_failure_count"],
+            final_archive_hash_result=final_hash_result,
+            stage_timings=stage_timings,
+            restored_directory=restore_result.restored_directory,
+        )
+        print(build_session_report_fn(session_stats))
+        if missing_indexes:
+            recovery_indexes = ",".join(str(index) for index in missing_indexes)
+            _bar_log(
+                "bar: partial recovery complete; "
+                f"missing chunk indexes: {missing_indexes}; "
+                f"restored {restore_result.restored_file_count} complete file(s) and "
+                f"{restore_result.partial_fragment_count} partial fragment(s); "
+                f"progress saved in {progress_store.session_path(session_id)}"
+            )
+            _bar_log(
+                "bar: recovery playback arguments: "
+                f"--session-id {session_id.hex()} "
+                f'--missing-chunks "{recovery_indexes}"'
+            )
+        else:
+            _bar_log(
+                "bar: complete, restored directory: "
+                f"{restore_result.restored_directory}"
+            )
+        return 0
 
     _bar_log(
         "bar: reassembling archive "
