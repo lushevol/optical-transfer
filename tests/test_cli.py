@@ -75,9 +75,18 @@ def test_foo_command_accepts_frame_interval_override():
 
 def test_foo_command_accepts_missing_chunks_option():
     parser = build_parser()
-    args = parser.parse_args(["foo", "--missing-chunks", "3, 7,9"])
+    args = parser.parse_args(
+        [
+            "foo",
+            "--session-id",
+            "00112233445566778899aabbccddeeff",
+            "--missing-chunks",
+            "3, 7,9",
+        ]
+    )
 
     assert args.missing_chunks == "3, 7,9"
+    assert args.session_id == "00112233445566778899aabbccddeeff"
     assert cli_module.parse_missing_chunk_indexes(args.missing_chunks) == [3, 7, 9]
 
 
@@ -384,12 +393,22 @@ def test_handle_foo_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypatch):
     source_dir.mkdir()
 
     parser = build_parser()
-    args = parser.parse_args(["foo", "--source", str(source_dir), "--missing-chunks", "1,3"])
+    args = parser.parse_args(
+        [
+            "foo",
+            "--source",
+            str(source_dir),
+            "--session-id",
+            "00112233445566778899aabbccddeeff",
+            "--missing-chunks",
+            "1,3",
+        ]
+    )
 
     calls: List[Tuple[str, object]] = []
 
     class DummyPayloads:
-        session_id = b"session"
+        session_id = bytes.fromhex("00112233445566778899aabbccddeeff")
         total_chunks = 4
         packet_sequence = [b"full"]
 
@@ -433,6 +452,45 @@ def test_handle_foo_uses_saved_bundle_for_missing_chunks(tmp_path, monkeypatch):
     assert calls[1][1][1] == [1, 3]
     assert calls[2][0] == "create_player_app"
     assert isinstance(calls[2][1], FilteredPayloads)
+
+
+def test_handle_foo_rejects_missing_chunks_from_a_different_saved_session(
+    tmp_path, monkeypatch
+):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+
+    class SavedPayloads:
+        session_id = bytes.fromhex("ffeeddccbbaa99887766554433221100")
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_session_bundle",
+        lambda _source_dir: SavedPayloads(),
+        raising=False,
+    )
+
+    args = build_parser().parse_args(
+        [
+            "foo",
+            "--source",
+            str(source_dir),
+            "--session-id",
+            "00112233445566778899aabbccddeeff",
+            "--missing-chunks",
+            "1,3",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="does not match the bar recovery request"):
+        handle_foo(args)
+
+
+def test_handle_foo_requires_session_id_for_missing_chunk_playback():
+    args = build_parser().parse_args(["foo", "--missing-chunks", "1,3"])
+
+    with pytest.raises(ValueError, match="requires --session-id"):
+        handle_foo(args)
 
 
 def test_handle_foo_prints_preview_url_when_open_browser_requested_but_launch_fails(tmp_path, monkeypatch, capsys):
@@ -604,6 +662,60 @@ def test_handle_bar_runs_pipeline_and_prints_session_report(tmp_path, monkeypatc
     ]
     assert len(restored_dirs) == 1
     assert (restored_dirs[0] / "message.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_handle_bar_reports_session_ids_for_incompatible_recordings(
+    tmp_path, monkeypatch
+):
+    source_one = tmp_path / "source-one"
+    source_two = tmp_path / "source-two"
+    source_one.mkdir()
+    source_two.mkdir()
+    (source_one / "message.txt").write_text("one", encoding="utf-8")
+    (source_two / "message.txt").write_text("two", encoding="utf-8")
+    session_one = build_session_payloads(source_one, password="secret", chunk_size=64)
+    session_two = build_session_payloads(source_two, password="secret", chunk_size=64)
+    packets = iter([session_one.manifest_packet, session_two.manifest_packet])
+
+    monkeypatch.setattr(
+        cli_module,
+        "iter_video_frames",
+        lambda _video_path: iter(["frame-one", "frame-two"]),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "preprocess_frame",
+        lambda frame_path: frame_path,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "decode_qr_payload",
+        lambda _image: next(packets),
+        raising=False,
+    )
+
+    args = build_parser().parse_args(
+        [
+            "bar",
+            str(tmp_path / "recording.mp4"),
+            "--password",
+            "secret",
+            "--output-root",
+            str(tmp_path / "restored"),
+        ]
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        cli_module.handle_bar(args)
+
+    message = str(exc_info.value)
+    assert "different sessions and cannot be merged" in message
+    assert session_one.session_id.hex() in message
+    assert session_two.session_id.hex() in message
+    assert f"({session_one.total_chunks} chunks)" in message
+    assert f"({session_two.total_chunks} chunks)" in message
 
 
 def test_handle_bar_passes_decode_workers_to_frame_decoder(tmp_path, monkeypatch):
@@ -845,6 +957,10 @@ def test_handle_bar_partially_restores_when_chunk_is_missing(tmp_path, monkeypat
     assert cli_module.handle_bar(args) == 0
     captured = capsys.readouterr()
     assert "partial recovery complete; missing chunk indexes:" in captured.out
+    assert (
+        f"recovery playback arguments: --session-id {session.session_id.hex()}"
+        in captured.out
+    )
     assert "final archive hash result: incomplete" in captured.out
     restored_dirs = [
         path

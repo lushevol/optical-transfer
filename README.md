@@ -44,8 +44,11 @@ The bar accepts one or more recorded videos, extracts frames with `ffmpeg`, deco
 New transfers use independently recoverable bundle chunks. If some QR frames are
 missing, bar still restores every complete file it can verify and writes received
 segments of incomplete files under `.atlasx-partial`; saved progress can later be
-completed with a missing-chunk playback. Legacy `tar.gz` sessions remain readable
-but still require their full chunk set.
+completed with a missing-chunk playback. The bar prints `--session-id` and
+`--missing-chunks` recovery arguments; pass both to foo with the same `--source`
+directory used for the original playback. Foo validates the saved session before
+broadcasting recovery chunks. Legacy `tar.gz` sessions remain readable but still
+require their full chunk set.
 
 ```bash
 atlasx bar recording1.mp4 recording2.mp4 --password "secret" --output-root restored

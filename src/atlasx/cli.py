@@ -123,6 +123,10 @@ def _add_foo_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--player-port", type=int, default=DEFAULT_PLAYER_PORT)
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--missing-chunks")
+    parser.add_argument(
+        "--session-id",
+        help="expected transfer session ID for missing-chunk playback",
+    )
 
 
 def _add_bar_arguments(parser: argparse.ArgumentParser) -> None:
@@ -153,12 +157,29 @@ def default_decode_worker_count() -> int:
 def handle_foo(args: argparse.Namespace) -> int:
     config = build_foo_config(args)
     if args.missing_chunks is None:
+        if args.session_id is not None:
+            raise ValueError("--session-id can only be used with --missing-chunks")
         payloads = build_session_payloads(config.source_dir, config.password, config.chunk_size)
         save_session_bundle(config.source_dir, payloads)
     else:
+        if args.session_id is None:
+            raise ValueError(
+                "foo missing-chunk playback requires --session-id from the bar "
+                "recovery request"
+            )
         missing_indexes = parse_missing_chunk_indexes(args.missing_chunks)
+        expected_session_id = parse_session_id(args.session_id)
+        saved_payloads = load_session_bundle(config.source_dir)
+        if saved_payloads.session_id != expected_session_id:
+            raise ValueError(
+                "saved foo session does not match the bar recovery request: "
+                f"expected {expected_session_id.hex()}, "
+                f"found {saved_payloads.session_id.hex()}; "
+                "use the same --source directory and saved .atlasx-foo bundle "
+                "as the original playback"
+            )
         payloads = filter_session_payloads(
-            load_session_bundle(config.source_dir),
+            saved_payloads,
             missing_indexes,
         )
     server = create_player_app(
@@ -197,6 +218,17 @@ def parse_missing_chunk_indexes(value: str) -> list[int]:
     if len(set(indexes)) != len(indexes):
         raise ValueError("missing chunk indexes must not contain duplicates")
     return sorted(indexes)
+
+
+def parse_session_id(value: str) -> bytes:
+    normalized = value.strip().lower()
+    try:
+        session_id = bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise ValueError("session ID must be hexadecimal") from exc
+    if len(session_id) != 16:
+        raise ValueError("session ID must contain exactly 32 hexadecimal characters")
+    return session_id
 
 
 def handle_bar(args: argparse.Namespace) -> int:
@@ -306,7 +338,14 @@ def handle_bar(args: argparse.Namespace) -> int:
             )
             load_saved_progress(session_id)
         elif header.session_id != session_id:
-            raise ValueError("bar inputs contain multiple sessions")
+            expected_description = session_id.hex()
+            if expected_total_chunks is not None:
+                expected_description += f" ({expected_total_chunks} chunks)"
+            raise ValueError(
+                "bar inputs contain different sessions and cannot be merged: "
+                f"expected {expected_description}, "
+                f"found {header.session_id.hex()} ({header.total_chunks} chunks)"
+            )
 
         if observed_kdf_salt is None:
             observed_kdf_salt = header.kdf_salt
@@ -504,12 +543,18 @@ def handle_bar(args: argparse.Namespace) -> int:
         )
         print(build_session_report_fn(session_stats))
         if missing_indexes:
+            recovery_indexes = ",".join(str(index) for index in missing_indexes)
             _bar_log(
                 "bar: partial recovery complete; "
                 f"missing chunk indexes: {missing_indexes}; "
                 f"restored {restore_result.restored_file_count} complete file(s) and "
                 f"{restore_result.partial_fragment_count} partial fragment(s); "
                 f"progress saved in {progress_store.session_path(session_id)}"
+            )
+            _bar_log(
+                "bar: recovery playback arguments: "
+                f"--session-id {session_id.hex()} "
+                f'--missing-chunks "{recovery_indexes}"'
             )
         else:
             _bar_log(
